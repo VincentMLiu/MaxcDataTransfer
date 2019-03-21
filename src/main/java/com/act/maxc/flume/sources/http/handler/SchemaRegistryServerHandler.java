@@ -75,6 +75,7 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
             responseStrBuilder.append(inputStr);
         
         JSONObject jsonObject = JSONObject.parseObject(responseStrBuilder.toString());
+        jsonObject.get("topic");
         requestBody= jsonObject.toJSONString();
         System.out.println(requestBody);
     } catch (Exception e) {
