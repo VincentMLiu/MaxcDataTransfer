@@ -10,18 +10,45 @@
 
 
     <properties>
-        <flume-version>1.9.0</flume-version>
-
+        <flume.version>1.9.0</flume.version>
+	    <!-- Keep versions as properties to allow easy modification -->
+	    <avro.version>1.8.2</avro.version>
+	    <fastjson.version> 1.2.56 </fastjson.version>
+	    <!-- Maven properties for compilation -->
+	    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     </properties>
-
+    
+	  <repositories>
+	    <repository>
+	      <id>confluent</id>
+	      <name>Confluent</name>
+	      <url>https://packages.confluent.io/maven/</url>
+	    </repository>
+	  </repositories>
+	  
+	  <pluginRepositories>
+	    <pluginRepository>
+	      <id>confluent</id>
+	      <url>https://packages.confluent.io/maven/</url>
+	    </pluginRepository>
+		</pluginRepositories>
+    
     <dependencies>
         <dependency>
             <groupId>org.apache.flume</groupId>
             <artifactId>flume-ng-core</artifactId>
-            <version>${flume-version}</version>
+            <version>${flume.version}</version>
         </dependency>
 
+
+	<dependency>
+	    <groupId>com.alibaba</groupId>
+	    <artifactId>fastjson</artifactId>
+	    <version>${fastjson.version}</version>
+	</dependency>
+	
 
 
     </dependencies>
