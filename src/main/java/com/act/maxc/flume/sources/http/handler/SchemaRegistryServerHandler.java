@@ -19,6 +19,16 @@ package com.act.maxc.flume.sources.http.handler;
 
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.base.Preconditions;
+
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.Encoder;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.flume.Context;
@@ -32,8 +42,15 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -117,4 +134,68 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
     this.mandatoryHeaders = commaSeparatedHeaders.split(PARAMETER_SEPARATOR);
   }
 
+  
+  private void getSchema(String subject) throws Exception {
+	  Schema.Parser parser = new Schema.Parser();
+      StringBuilder result = new StringBuilder();
+      URL url = new URL("http://172.30.132.141:58088/subjects/" + subject + "/versions/latest");
+      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+      conn.setRequestMethod("GET");
+      BufferedReader rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+      String line;
+      while ((line = rd.readLine()) != null) {
+         result.append(line);
+      }
+      rd.close();
+//    json format: {"subject":"topic1","version":1,"id":102,"schema":"{\"type\":\"record\",\"name\":\"topic1\",\"fields\":[{\"name\":\"c1\",\"type\":\"string\"},{\"name\":\"c2\",\"type\":\"string\"},{\"name\":\"c3\",\"type\":\"int\"}]}"}
+      JSONObject json = JSONObject.parseObject(result.toString());
+      String schemaStr = (String) json.get("schema");
+      Schema schema2 = parser.parse(schemaStr);
+      System.out.println(schema2);
+
+	  
+  }
+  
+  
+  public static byte[] jsonToAvro(String json, String schemaStr) throws IOException {
+	    InputStream input = null;
+	    DataFileWriter<GenericRecord> writer = null;
+	    Encoder encoder = null;
+	    ByteArrayOutputStream output = null;
+	    try {
+	        Schema schema = new Schema.Parser().parse(schemaStr);
+	        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+	        input = new ByteArrayInputStream(json.getBytes());
+	        output = new ByteArrayOutputStream();
+	        DataInputStream din = new DataInputStream(input);
+	        writer = new DataFileWriter<GenericRecord>(new GenericDatumWriter<GenericRecord>());
+	        writer.create(schema, output);
+	        Decoder decoder = DecoderFactory.get().jsonDecoder(schema, din);
+	        GenericRecord datum;
+	        while (true) {
+	            try {
+	                datum = reader.read(null, decoder);
+	            } catch (EOFException eofe) {
+	                break;
+	            }
+	            writer.append(datum);
+	        }
+	        writer.flush();
+	        return output.toByteArray();
+	    } finally {
+	        try { input.close(); } catch (Exception e) { }
+	    }
+	}
+  
+  
+  public static void main(String[] args) {
+	  SchemaRegistryServerHandler sr = new SchemaRegistryServerHandler();
+	  try {
+		sr.getSchema("transactions-value");
+	} catch (Exception e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+	}
+  }
+  
 }
