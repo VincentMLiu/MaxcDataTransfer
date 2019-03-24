@@ -34,8 +34,25 @@
       </plugin>
     </plugins>
   </build>
+  <repositories>
+    <repository>
+      <id>confluent</id>
+      <name>Confluent</name>
+      <url>https://packages.confluent.io/maven/</url>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>confluent</id>
+      <url>https://packages.confluent.io/maven/</url>
+    </pluginRepository>
+  </pluginRepositories>
   <properties>
-    <flume-version>1.9.0</flume-version>
+    <avro.version>1.8.2</avro.version>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <flume.version>1.9.0</flume.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <fastjson.version>1.2.56</fastjson.version>
   </properties>
 </project>
 
