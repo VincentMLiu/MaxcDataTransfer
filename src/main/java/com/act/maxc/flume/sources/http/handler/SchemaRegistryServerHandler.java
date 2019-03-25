@@ -17,20 +17,25 @@
  */
 package com.act.maxc.flume.sources.http.handler;
 
+import com.act.maxc.flume.utils.JsonAvroUtils;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.base.Preconditions;
 
 import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericArray;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.Decoder;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.conf.LogPrivacyUtil;
@@ -50,6 +55,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -75,43 +81,75 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
 
   public static final String PARAMETER_SEPARATOR = ",";
 
+  //入库topic
+  private String topic; 
+  //获取schema
+  private static Schema schema;
+  
+  //消息格式: json、avro、csv
+  private String messageFormat;
+  
+  
+  
+private void dealRequstHeaders(HttpServletRequest request) {
+	
+	//需要入库的topic
+	topic = request.getHeader("topic");
+	schema = getSchema(topic);
+	//消息格式
+	messageFormat = request.getHeader("messageFormat");
+	
+}
+  
+  
   /**
-   * {@inheritDoc}
-   */
-  @SuppressWarnings("unchecked")
+ * 
+ * 
+ * 
+ * */
+@SuppressWarnings("unchecked")
   public List<Event> getEvents(HttpServletRequest request) throws Exception {
-    Map<String, String> headers = new HashMap<String, String>();
-    
-    InputStream inputStream = request.getInputStream();
-    String requestBody = "";
-    try {
-        BufferedReader streamReader = new BufferedReader( new InputStreamReader(request.getInputStream(), "UTF-8"));
-        StringBuilder responseStrBuilder = new StringBuilder();
-        String inputStr;
-        while ((inputStr = streamReader.readLine()) != null)
-            responseStrBuilder.append(inputStr);
-        
-        JSONObject jsonObject = JSONObject.parseObject(responseStrBuilder.toString());
-        jsonObject.get("topic");
-        requestBody= jsonObject.toJSONString();
-        System.out.println(requestBody);
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
 
+    //处理消息头
+    dealRequstHeaders(request);
+    //event header
+    Map<String, String> headers = new HashMap<String, String>();
     Map<String, String[]> parameters = request.getParameterMap();
     for (String parameter : parameters.keySet()) {
-      String value = parameters.get(parameter)[0];
-      if (LOG.isDebugEnabled() && LogPrivacyUtil.allowLogRawData()) {
-        LOG.debug("Setting Header [Key, Value] as [{},{}] ", parameter, value);
-      }
-      headers.put(parameter, value);
+    	String value = parameters.get(parameter)[0];
+    	if (LOG.isDebugEnabled() && LogPrivacyUtil.allowLogRawData()) {
+    		LOG.debug("Setting Header [Key, Value] as [{},{}] ", parameter, value);
+    	}
+    	headers.put(parameter, value);
     }
 
+    //消息头header需要必填的属性
     for (String header : mandatoryHeaders) {
       Preconditions.checkArgument(headers.containsKey(header),
           "Please specify " + header + " parameter in the request.");
     }
+    
+    
+    //处理消息体body
+    //eventBody
+    InputStream inputStream = request.getInputStream();
+    String requestBody = "";
+    byte[] avroSerialBody = null;
+    try {
+    	if(StringUtils.equalsIgnoreCase(messageFormat, "json")) {
+    		avroSerialBody = JsonAvroUtils.jsonToAvro(inputStream, schema);
+    	}
+    	
+    	if(StringUtils.equalsIgnoreCase(messageFormat, "avro")) {
+    		
+    	}
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+
+    
+    
+
 
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
     try {
@@ -135,67 +173,50 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
   }
 
   
-  private void getSchema(String subject) throws Exception {
+  private Schema getSchema(String subject) {
 	  Schema.Parser parser = new Schema.Parser();
       StringBuilder result = new StringBuilder();
-      URL url = new URL("http://172.30.132.141:58088/subjects/" + subject + "/versions/latest");
-      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-      conn.setRequestMethod("GET");
-      BufferedReader rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-      String line;
-      while ((line = rd.readLine()) != null) {
-         result.append(line);
-      }
-      rd.close();
+      URL url;
+	try {
+		url = new URL("http://172.30.132.141:58088/subjects/" + subject + "/versions/latest");
+		HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+		conn.setRequestMethod("GET");
+		BufferedReader rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+		String line;
+		while ((line = rd.readLine()) != null) {
+			result.append(line);
+		}
+		rd.close();
+	} catch (MalformedURLException e) {
+		e.printStackTrace();
+	} catch (ProtocolException e) {
+		e.printStackTrace();
+	} catch (IOException e) {
+		e.printStackTrace();
+	}
 //    json format: {"subject":"topic1","version":1,"id":102,"schema":"{\"type\":\"record\",\"name\":\"topic1\",\"fields\":[{\"name\":\"c1\",\"type\":\"string\"},{\"name\":\"c2\",\"type\":\"string\"},{\"name\":\"c3\",\"type\":\"int\"}]}"}
       JSONObject json = JSONObject.parseObject(result.toString());
       String schemaStr = (String) json.get("schema");
-      Schema schema2 = parser.parse(schemaStr);
-      System.out.println(schema2);
+      Schema schema = parser.parse(schemaStr);
+      System.out.println(schema);
 
-	  
+	  return schema;
   }
   
   
-  public static byte[] jsonToAvro(String json, String schemaStr) throws IOException {
-	    InputStream input = null;
-	    DataFileWriter<GenericRecord> writer = null;
-	    Encoder encoder = null;
-	    ByteArrayOutputStream output = null;
-	    try {
-	        Schema schema = new Schema.Parser().parse(schemaStr);
-	        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-	        input = new ByteArrayInputStream(json.getBytes());
-	        output = new ByteArrayOutputStream();
-	        DataInputStream din = new DataInputStream(input);
-	        writer = new DataFileWriter<GenericRecord>(new GenericDatumWriter<GenericRecord>());
-	        writer.create(schema, output);
-	        Decoder decoder = DecoderFactory.get().jsonDecoder(schema, din);
-	        GenericRecord datum;
-	        while (true) {
-	            try {
-	                datum = reader.read(null, decoder);
-	            } catch (EOFException eofe) {
-	                break;
-	            }
-	            writer.append(datum);
-	        }
-	        writer.flush();
-	        return output.toByteArray();
-	    } finally {
-	        try { input.close(); } catch (Exception e) { }
-	    }
-	}
+  
   
   
   public static void main(String[] args) {
-	  SchemaRegistryServerHandler sr = new SchemaRegistryServerHandler();
-	  try {
-		sr.getSchema("transactions-value");
-	} catch (Exception e) {
-		// TODO Auto-generated catch block
-		e.printStackTrace();
-	}
+//	  SchemaRegistryServerHandler sr = new SchemaRegistryServerHandler();
+//	  try {
+//		  schema  = sr.getSchema("transactions-value");
+//	} catch (Exception e) {
+//		// TODO Auto-generated catch block
+//		e.printStackTrace();
+//	}
+	  
+
   }
   
 }
