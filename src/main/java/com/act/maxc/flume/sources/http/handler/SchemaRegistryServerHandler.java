@@ -141,7 +141,7 @@ private void dealRequstHeaders(HttpServletRequest request) {
     	}
     	
     	if(StringUtils.equalsIgnoreCase(messageFormat, "avro")) {
-    		
+    		avroSerialBody = JsonAvroUtils.avroToAvro(inputStream, schema);
     	}
     } catch (Exception e) {
         e.printStackTrace();
