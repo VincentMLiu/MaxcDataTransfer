@@ -16,7 +16,7 @@
  limitations under the License.
  */
 
-package org.apache.flume.sink.kafka;
+package com.act.maxc.flume.sinks.kafka;
 
 import org.apache.kafka.clients.CommonClientConfigs;
 

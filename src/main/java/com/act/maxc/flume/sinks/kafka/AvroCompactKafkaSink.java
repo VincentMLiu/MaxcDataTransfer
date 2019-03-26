@@ -268,7 +268,7 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
     waitTime = context.getLong("context", 10000l);
     
     
-    topic = context.getString(KafkaSinkConstants.TOPIC,
+    topic = context.getString(KafkaSinkConstants.TOPIC_CONFIG,
       KafkaSinkConstants.DEFAULT_TOPIC);
     if (topic.equals(KafkaSinkConstants.DEFAULT_TOPIC)) {
       logger.warn("The Property 'topic' is not set. " +
