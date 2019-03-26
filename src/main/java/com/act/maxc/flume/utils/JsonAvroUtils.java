@@ -1,13 +1,17 @@
 package com.act.maxc.flume.utils;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.List;
 
 import org.apache.avro.Schema;
-import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -59,10 +63,7 @@ public class JsonAvroUtils {
 	    } catch (IOException e) {
 			e.printStackTrace();
 	        return output.toByteArray();
-		} finally {
-	        try { json.close(); } catch (Exception e) { }
-
-	    }
+		} 
 	}
 	
 	
@@ -78,12 +79,11 @@ public class JsonAvroUtils {
 	public static byte[] avroToAvro(InputStream avro, Schema schema) {
 		GenericDatumWriter<GenericRecord> writer = null;
 	    ByteArrayOutputStream output = null;
-	    
 	    Encoder encoder = null;
 	    try {
 	    	DataInputStream dataInputStream = new DataInputStream(avro);
 	        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-	        Decoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
+	        BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
 	        
 	        output = new ByteArrayOutputStream();
 	        writer = new GenericDatumWriter<GenericRecord>(schema);
@@ -91,7 +91,7 @@ public class JsonAvroUtils {
 	        encoder =  EncoderFactory.get().binaryEncoder(output, null);
 
 	        GenericRecord datum;
-	        while (true) {
+	        while (decoder.isEnd()) {
 	            try {
 	                datum = reader.read(null, decoder);
 	                System.out.println(datum);
@@ -106,10 +106,55 @@ public class JsonAvroUtils {
 	    } catch (IOException e) {
 			e.printStackTrace();
 	        return output.toByteArray();
-		} finally {
-	        try { avro.close(); } catch (Exception e) { }
-
-	    }
+		} 
+	}
+	
+	/**
+	 * csv byte[] 序列化为压缩的avro
+	 * 
+	 * @param csv
+	 * @param splitRegex
+	 * @param schema
+	 * @return
+	 */
+	public static byte[] csvToAvro(InputStream csv, String splitRegex, Schema schema) {
+		GenericDatumWriter<GenericRecord> writer = null;
+	    ByteArrayOutputStream output = null;
+	    Encoder encoder = null;
+	    
+	    List<Field> fieldList = schema.getFields();
+	    
+	    try {
+	    	BufferedReader br = new BufferedReader(new InputStreamReader(csv));
+	    	
+	    	output = new ByteArrayOutputStream();
+	    	writer = new GenericDatumWriter<GenericRecord>(schema);
+	    	
+	    	encoder =  EncoderFactory.get().binaryEncoder(output, null);
+	    	while((br.read())!= -1) {
+	    		String lineStr = br.readLine();
+	    		String[] lineSpli = lineStr.split(splitRegex);
+	    		//解析字符相等才拆分序列化字符
+	    		if(lineSpli.length == fieldList.size()) {
+	    			GenericRecord datum = new GenericData.Record(schema);
+	    			for(int i = 0 ; i <  fieldList.size() ; i++) {
+	    				datum.put(fieldList.get(i).getProp("name"), lineSpli[i]);
+	    			}
+	    			System.out.println(datum);
+	    			writer.write(datum, encoder);
+	    		}else {
+	    		//打印日志，说明某行解析错误，并统计
+	    		
+	    		}
+	    	}
+	    	
+	    	encoder.flush();
+	        
+	        return output.toByteArray();
+	    } catch (IOException e) {
+			e.printStackTrace();
+	        return output.toByteArray();
+		}
 	}
 	
 	

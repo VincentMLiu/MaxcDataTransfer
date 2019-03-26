@@ -18,23 +18,10 @@
 package com.act.maxc.flume.sources.http.handler;
 
 import com.act.maxc.flume.utils.JsonAvroUtils;
-import com.alibaba.fastjson.JSONObject;
+import com.act.maxc.flume.utils.SchemaRegistryServerUtils;
 import com.google.common.base.Preconditions;
 
 import org.apache.avro.Schema;
-import org.apache.avro.file.DataFileWriter;
-import org.apache.avro.generic.GenericArray;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericDatumWriter;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.io.BinaryDecoder;
-import org.apache.avro.io.DatumReader;
-import org.apache.avro.io.Decoder;
-import org.apache.avro.io.DecoderFactory;
-import org.apache.avro.io.Encoder;
-import org.apache.avro.io.EncoderFactory;
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
@@ -46,17 +33,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.servlet.http.HttpServletRequest;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.EOFException;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.ProtocolException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -74,6 +51,8 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
   private String commaSeparatedHeaders;
 
   private String[] mandatoryHeaders;
+  
+  private String serverUrl;
 
   public static final String MANDATORY_PARAMETERS = "mandatoryParameters";
 
@@ -89,16 +68,20 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
   //消息格式: json、avro、csv
   private String messageFormat;
   
+  //如果解析csv还需要拆分符号
+  private String splitRegex;
   
   
 private void dealRequstHeaders(HttpServletRequest request) {
 	
 	//需要入库的topic
 	topic = request.getHeader("topic");
-	schema = getSchema(topic);
+	schema = SchemaRegistryServerUtils.getSchema(serverUrl, topic);
 	//消息格式
 	messageFormat = request.getHeader("messageFormat");
-	
+	if(StringUtils.equalsIgnoreCase(messageFormat, "csv")) {
+		splitRegex = request.getHeader("splitRegex"); 
+	}
 }
   
   
@@ -129,39 +112,31 @@ private void dealRequstHeaders(HttpServletRequest request) {
           "Please specify " + header + " parameter in the request.");
     }
     
-    
+    headers.put("schema", schema.toString());
     //处理消息体body
     //eventBody
     InputStream inputStream = request.getInputStream();
-    String requestBody = "";
     byte[] avroSerialBody = null;
     try {
     	if(StringUtils.equalsIgnoreCase(messageFormat, "json")) {
     		avroSerialBody = JsonAvroUtils.jsonToAvro(inputStream, schema);
-    	}
-    	
-    	if(StringUtils.equalsIgnoreCase(messageFormat, "avro")) {
+    	}else if (StringUtils.equalsIgnoreCase(messageFormat, "avro")) {
     		avroSerialBody = JsonAvroUtils.avroToAvro(inputStream, schema);
+    	}else if (StringUtils.equalsIgnoreCase(messageFormat, "csv")) {
+    		avroSerialBody = JsonAvroUtils.csvToAvro(inputStream,  splitRegex, schema);
     	}
     } catch (Exception e) {
         e.printStackTrace();
     }
 
-    
-    
-
-
-    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
     try {
-      IOUtils.copy(inputStream, outputStream);
-      LOG.debug("Building an Event with stream of size -- {}", outputStream.size());
-      Event event = EventBuilder.withBody(outputStream.toByteArray(), headers);
+      LOG.debug("Building an Event with byte of size -- {}", avroSerialBody.length);
+      Event event = EventBuilder.withBody(avroSerialBody, headers);
       event.setHeaders(headers);
       List<Event> eventList = new ArrayList<Event>();
       eventList.add(event);
       return eventList;
     } finally {
-      outputStream.close();
       inputStream.close();
     }
   }
@@ -170,38 +145,13 @@ private void dealRequstHeaders(HttpServletRequest request) {
     this.commaSeparatedHeaders = context.getString(MANDATORY_PARAMETERS,
                                                    DEFAULT_MANDATORY_PARAMETERS);
     this.mandatoryHeaders = commaSeparatedHeaders.split(PARAMETER_SEPARATOR);
+    
+    
+    this.serverUrl = context.getString("SchemaRegistryServerHandler.serverUrl", "http://localhost:58088");
   }
 
   
-  private Schema getSchema(String subject) {
-	  Schema.Parser parser = new Schema.Parser();
-      StringBuilder result = new StringBuilder();
-      URL url;
-	try {
-		url = new URL("http://172.30.132.141:58088/subjects/" + subject + "/versions/latest");
-		HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-		conn.setRequestMethod("GET");
-		BufferedReader rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-		String line;
-		while ((line = rd.readLine()) != null) {
-			result.append(line);
-		}
-		rd.close();
-	} catch (MalformedURLException e) {
-		e.printStackTrace();
-	} catch (ProtocolException e) {
-		e.printStackTrace();
-	} catch (IOException e) {
-		e.printStackTrace();
-	}
-//    json format: {"subject":"topic1","version":1,"id":102,"schema":"{\"type\":\"record\",\"name\":\"topic1\",\"fields\":[{\"name\":\"c1\",\"type\":\"string\"},{\"name\":\"c2\",\"type\":\"string\"},{\"name\":\"c3\",\"type\":\"int\"}]}"}
-      JSONObject json = JSONObject.parseObject(result.toString());
-      String schemaStr = (String) json.get("schema");
-      Schema schema = parser.parse(schemaStr);
-      System.out.println(schema);
 
-	  return schema;
-  }
   
   
   
