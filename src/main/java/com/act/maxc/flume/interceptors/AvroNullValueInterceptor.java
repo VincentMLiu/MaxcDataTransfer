@@ -162,15 +162,22 @@ public class AvroNullValueInterceptor implements Interceptor {
 		    try {
 		        datum = reader.read(null, decoder);
 		        System.out.println(datum);
-		        
+		        logger.info(datum.toString());
+		        boolean join = true;
 		        for(String value: nullValueSpli) {
 		        	if(StringUtils.equalsIgnoreCase(value, datum.get(nullField).toString())) {
 		        		//空值抛掉
+		        		join = false;
+		        		logger.info("drop");
 		        		break;
 		        	}else {
 		        		//非空写入
-		        		writer.write(datum, encoder);
+		        		logger.info("join");
+		        		join = true;
 		        	}
+		        }
+		        if(join) {
+		        	writer.write(datum, encoder);
 		        }
 		    } catch (EOFException eofe) {
 		        break;

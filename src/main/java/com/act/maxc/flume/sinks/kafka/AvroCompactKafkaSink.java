@@ -136,7 +136,7 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
         eventKey = headers.get(KEY_HDR);
 
         
-        //壓縮
+        //压缩
         String schemaStr = event.getHeaders().get("schema");
         Schema schema = new Schema.Parser().parse(schemaStr);
         
@@ -265,7 +265,7 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
     //支持json和avro
     compactionFormat = context.getString("compactionFormat", "avro");
     compactionRate = context.getInteger("compactionRate", 100);
-    waitTime = context.getLong("context", 10000l);
+    waitTime = context.getLong("waitTime", 10000l);
     
     
     topic = context.getString(KafkaSinkConstants.TOPIC_CONFIG,

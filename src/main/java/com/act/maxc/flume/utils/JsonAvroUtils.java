@@ -52,6 +52,7 @@ public class JsonAvroUtils {
 	        while (true) {
 	            try {
 	                datum = reader.read(null, decoder);
+	                System.out.println(datum);
 	            } catch (EOFException eofe) {
 	                break;
 	            }

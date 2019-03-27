@@ -98,8 +98,18 @@ private void dealRequstHeaders(HttpServletRequest request) {
     //event header
     Map<String, String> headers = new HashMap<String, String>();
     Map<String, String[]> parameters = request.getParameterMap();
+    request.getHeaderNames();
+    
+    
+    
+    
+    
+    
+    
+    
     for (String parameter : parameters.keySet()) {
     	String value = parameters.get(parameter)[0];
+    	System.out.println("Setting Header [Key, Value] as [{" +parameter + "},{" +value + "}] ");
     	if (LOG.isDebugEnabled() && LogPrivacyUtil.allowLogRawData()) {
     		LOG.debug("Setting Header [Key, Value] as [{},{}] ", parameter, value);
     	}
@@ -107,10 +117,10 @@ private void dealRequstHeaders(HttpServletRequest request) {
     }
 
     //消息头header需要必填的属性
-    for (String header : mandatoryHeaders) {
-      Preconditions.checkArgument(headers.containsKey(header),
-          "Please specify " + header + " parameter in the request.");
-    }
+//    for (String header : mandatoryHeaders) {
+//      Preconditions.checkArgument(headers.containsKey(header),
+//          "Please specify " + header + " parameter in the request.");
+//    }
     
     headers.put("schema", schema.toString());
     //处理消息体body
@@ -133,6 +143,7 @@ private void dealRequstHeaders(HttpServletRequest request) {
       LOG.debug("Building an Event with byte of size -- {}", avroSerialBody.length);
       Event event = EventBuilder.withBody(avroSerialBody, headers);
       event.setHeaders(headers);
+      System.out.println(headers);
       List<Event> eventList = new ArrayList<Event>();
       eventList.add(event);
       return eventList;

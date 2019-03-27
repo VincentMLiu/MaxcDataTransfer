@@ -16,14 +16,26 @@
  limitations under the License.
  */
 
-package org.apache.flume.sink.kafka;
+package com.act.maxc.flume.sinks.kafka;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
+
+import kafka.producer.KeyedMessage;
+
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Channel;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
@@ -35,7 +47,6 @@ import org.apache.flume.conf.ConfigurationException;
 import org.apache.flume.conf.LogPrivacyUtil;
 import org.apache.flume.formatter.output.BucketPath;
 import org.apache.flume.instrumentation.kafka.KafkaSinkCounter;
-import org.apache.flume.shared.kafka.KafkaSSLUtil;
 import org.apache.flume.sink.AbstractSink;
 import org.apache.flume.source.avro.AvroFlumeEvent;
 import org.apache.kafka.clients.producer.Callback;
@@ -46,7 +57,10 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
@@ -56,21 +70,21 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Future;
 
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.BOOTSTRAP_SERVERS_CONFIG;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.BATCH_SIZE;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.DEFAULT_BATCH_SIZE;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.BROKER_LIST_FLUME_KEY;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.DEFAULT_ACKS;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.DEFAULT_KEY_SERIALIZER;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.DEFAULT_TOPIC;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.DEFAULT_VALUE_SERIAIZER;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.KAFKA_PRODUCER_PREFIX;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.KEY_HEADER;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.OLD_BATCH_SIZE;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.REQUIRED_ACKS_FLUME_KEY;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.TOPIC_CONFIG;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.KEY_SERIALIZER_KEY;
-import static org.apache.flume.sink.kafka.KafkaSinkConstants.MESSAGE_SERIALIZER_KEY;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.BOOTSTRAP_SERVERS_CONFIG;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.BATCH_SIZE;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.DEFAULT_BATCH_SIZE;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.BROKER_LIST_FLUME_KEY;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.DEFAULT_ACKS;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.DEFAULT_KEY_SERIALIZER;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.DEFAULT_TOPIC;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.DEFAULT_VALUE_SERIAIZER;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.KAFKA_PRODUCER_PREFIX;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.KEY_HEADER;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.OLD_BATCH_SIZE;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.REQUIRED_ACKS_FLUME_KEY;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.TOPIC_CONFIG;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.KEY_SERIALIZER_KEY;
+import static com.act.maxc.flume.sinks.kafka.KafkaSinkConstants.MESSAGE_SERIALIZER_KEY;
 
 
 /**
@@ -120,6 +134,11 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
   private Integer staticPartitionId = null;
   private boolean allowTopicOverride;
   private String topicHeader = null;
+  
+  
+  private String compactionFormat;
+  private int compactionRate;
+  private long waitTime;
 
   private Optional<SpecificDatumWriter<AvroFlumeEvent>> writer =
           Optional.absent();
@@ -151,6 +170,13 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
     String eventTopic = null;
     String eventKey = null;
 
+    
+	GenericDatumWriter<GenericRecord> writer = null;
+    ByteArrayOutputStream output = null;
+    Encoder encoder = null;
+    int countCompact = 0;
+    
+    
     try {
       long processedEvents = 0;
 
@@ -217,13 +243,61 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
               partitionId = Integer.parseInt(headerVal);
             }
           }
-          if (partitionId != null) {
-            record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
-                serializeEvent(event, useAvroEventFormat));
-          } else {
-            record = new ProducerRecord<String, byte[]>(eventTopic, eventKey,
-                serializeEvent(event, useAvroEventFormat));
+          
+          //每个EVENT对应输出到不同的kafka record因为下一个event有可能是不同的topic
+          //压缩
+          String schemaStr = event.getHeaders().get("schema");
+          Schema schema = new Schema.Parser().parse(schemaStr);
+          //解析event body
+          DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+          BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(new ByteArrayInputStream(eventBody), null);
+          
+          //新建输出流和writer
+          output = new ByteArrayOutputStream();
+          writer = new GenericDatumWriter<GenericRecord>(schema);
+          //根据配置选择压缩编码器
+          if(StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
+          	encoder =  EncoderFactory.get().binaryEncoder(output, null);
+          } else  {
+          	encoder = EncoderFactory.get().jsonEncoder(schema, output);
           }
+          
+          GenericRecord datum;
+          while (decoder.isEnd() && countCompact <= compactionRate) {
+          	try {
+          		datum = reader.read(null, decoder);
+          		System.out.println(datum);
+          		logger.info(datum.toString());
+          	} catch (EOFException eofe) {
+          		break;
+          	}
+          	writer.write(datum, encoder);
+          	countCompact++;
+            if(countCompact > compactionRate) {
+            	encoder.flush();
+            	
+            	// create a message and add to buffer
+                if (partitionId != null) {
+                    record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
+                    		output.toByteArray());
+                  } else {
+                    record = new ProducerRecord<String, byte[]>(eventTopic, eventKey,
+                    		output.toByteArray());
+                  }
+                kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
+            	output = new ByteArrayOutputStream();
+            	countCompact = 0;//重新进入循环
+            }
+          }
+          
+          
+          if (partitionId != null) {
+              record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
+              		output.toByteArray());
+            } else {
+              record = new ProducerRecord<String, byte[]>(eventTopic, eventKey,
+              		output.toByteArray());
+            }
           kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
         } catch (NumberFormatException ex) {
           throw new EventDeliveryException("Non integer partition id specified", ex);
@@ -310,6 +384,13 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 
     translateOldProps(context);
 
+    
+    //支持json和avro
+    compactionFormat = context.getString("compactionFormat", "avro");
+    compactionRate = context.getInteger("compactionRate", 100);
+    waitTime = context.getLong("waitTime", 10000l);
+    
+    
     String topicStr = context.getString(TOPIC_CONFIG);
     if (topicStr == null || topicStr.isEmpty()) {
       topicStr = DEFAULT_TOPIC;
