@@ -7,7 +7,9 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
@@ -23,10 +25,60 @@ import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.apache.flume.Event;
+import org.apache.flume.event.EventBuilder;
 
 
 public class JsonAvroUtils {
 
+	
+	
+	public static List<Event> jsonInputStreamToAvroEventList(InputStream json, Schema schema, Map<String, String> headers ) {
+		//返回的list
+		List<Event> eventList = new ArrayList<Event>();
+		//输出流
+		GenericDatumWriter<GenericRecord> writer = null;
+	    ByteArrayOutputStream output = null;
+	    Encoder encoder = null;
+	    try {
+	    	  //初始化输入流
+	    	DataInputStream dataInputStream = new DataInputStream(json);
+	        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+	        Decoder decoder = DecoderFactory.get().jsonDecoder(schema, dataInputStream);
+	        //初始化输出流
+	        writer = new GenericDatumWriter<GenericRecord>(schema);
+	        encoder =  EncoderFactory.get().binaryEncoder(output, null);
+
+	        GenericRecord datum;
+	        while (true) {
+	            try {
+	                datum = reader.read(null, decoder);
+	                System.out.println(datum);
+	                output = new ByteArrayOutputStream();
+	                writer.write(datum, encoder);
+	                encoder.flush();
+	                Event event = EventBuilder.withBody(output.toByteArray(), headers);
+	                eventList.add(event);
+	            } catch (EOFException eofe) {
+	                break;
+	            }
+	        }
+	        
+	    } catch (IOException e) {
+			e.printStackTrace();
+		} 
+	    return eventList;
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	/**
 	 * json byte[] 序列化为压缩的avro
 	 * 
@@ -135,25 +187,22 @@ public class JsonAvroUtils {
 	    	encoder =  EncoderFactory.get().binaryEncoder(output, null);
 	    	
 	    	//启动读数据。先进循环里
-	    	String lineStr = "";
+	    	String lineStr;
 
-	    		while(lineStr!=null) {
-	    			lineStr = br.readLine();
-	    			if(lineStr!=null) {
-	    				System.out.println(lineStr);
-	    				String[] lineSpli = lineStr.split(splitRegex);
-	    				//解析字符相等才拆分序列化字符
-	    				if(lineSpli.length == fieldList.size()) {
-	    					GenericRecord datum = new GenericData.Record(schema);
-	    					putCsvDataIntoGenericRecord(datum, lineSpli, fieldList);
-	    					System.out.println(datum);
-	    					writer.write(datum, encoder);
-	    				}else {
-	    					//打印日志，说明某行解析错误，并统计
-	    					
-	    				}
-	    			}
-	    		}
+    		while((lineStr=br.readLine())!=null) {
+    				System.out.println(lineStr);
+    				String[] lineSpli = lineStr.split(splitRegex);
+    				//解析字符相等才拆分序列化字符
+    				if(lineSpli.length == fieldList.size()) {
+    					GenericRecord datum = new GenericData.Record(schema);
+    					putCsvDataIntoGenericRecord(datum, lineSpli, fieldList);
+    					System.out.println(datum);
+    					writer.write(datum, encoder);
+    				}else {
+    					//打印日志，说明某行解析错误，并统计
+    					
+    				}
+    		}
 	    	
 	    	encoder.flush();
 	        
@@ -255,75 +304,18 @@ public class JsonAvroUtils {
 		  BufferedReader br = new BufferedReader(new InputStreamReader(is));
 		  
 		  try {
-			String line = "";
-			while(line!= null) {
-				line = br.readLine();
-				if(line!= null) {
+			String line;
+			while((line = br.readLine())!= null) {
 					GenericRecord datum = new GenericData.Record(schema);
 					System.out.println(line);
 					String[] lineSpli = line.split(","); 
 					putCsvDataIntoGenericRecord(datum, lineSpli, schema.getFields());
 					System.out.println(datum);
-				}
 			  }
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		  
-		  
-
-		  
-//		  InputStream input = null;
-//		  input = new ByteArrayInputStream(jsonStr.getBytes());
-//		  byte[]opt = jsonToAvro(input, schema);
-//		  
-//		  InputStream input2 = null;
-//		  input2 = new ByteArrayInputStream(opt);
-//		  
-//		  avroToAvro(input2, schema);
-//		  GenericDatumWriter<GenericRecord> writer = null;
-//		    Encoder encoder = null;
-//		    ByteArrayOutputStream output = null;
-//		    try {
-////		        Schema schema = new Schema.Parser().parse(schemaStr);
-//		        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-//		        
-//		        
-//		        input = new ByteArrayInputStream(jsonStr.getBytes());
-//		        output = new ByteArrayOutputStream();
-//		        DataInputStream din = new DataInputStream(input);
-//		        
-//		        writer = new GenericDatumWriter<GenericRecord>(schema);
-//		        encoder =  EncoderFactory.get().binaryEncoder(output, null);
-//		        
-//		        Decoder decoder = DecoderFactory.get().jsonDecoder(schema, din);
-//		        GenericRecord datum;
-//		        while (true) {
-//		            try {
-//		                datum = reader.read(null, decoder);
-//		            } catch (EOFException eofe) {
-//		                break;
-//		            }
-//		            writer.write(datum, encoder);
-//		        }
-//		        
-//		        encoder.flush();
-//		        byte[] opt = output.toByteArray();
-//		        System.out.println(opt);
-//		        
-//		        BinaryDecoder dataDecoder = new DecoderFactory().binaryDecoder(opt, null);
-//		        while (!dataDecoder.isEnd()) {
-//		        	GenericRecord datum2 = (GenericRecord)reader.read(null, dataDecoder);
-//		        	System.out.println(datum2);
-//		        }
-//		        
-//		    } catch (IOException e) {
-//				// TODO Auto-generated catch block
-//				e.printStackTrace();
-//			} finally {
-//		        try { input.close(); } catch (Exception e) { }
-//		    }
 		  
 	}
 

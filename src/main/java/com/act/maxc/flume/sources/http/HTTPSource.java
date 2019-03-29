@@ -231,7 +231,7 @@ public class HTTPSource extends SslContextAwareAbstractSource implements
       List<Event> events = Collections.emptyList(); //create empty list
       try {
         events = handler.getEvents(request);
-        
+        response.getOutputStream();
       } catch (HTTPBadRequestException ex) {
         LOG.warn("Received bad request from client. ", ex);
         sourceCounter.incrementEventReadFail();

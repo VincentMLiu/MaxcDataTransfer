@@ -17,9 +17,15 @@
  */
 package com.act.maxc.flume.sources.http.handler;
 
+import com.act.maxc.flume.utils.JsonAvroUtils;
+import com.act.maxc.flume.utils.SchemaRegistryServerUtils;
 import com.google.common.base.Preconditions;
+
+import org.apache.avro.Schema;
+import org.apache.commons.collections.EnumerationUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.conf.LogPrivacyUtil;
@@ -37,32 +43,71 @@ import java.util.Map;
 
 /**
  *
- * BLOBHandler for HTTPSource that accepts any binary stream of data as event.
+ * Binary2EventsHandler for HTTPSource that accepts any binary stream of data as event.
+ * 
+ * Get Schema from Confluent Registry Server, and transform binary records into seperated events.
  *
  */
 public class Binary2EventsHandler implements HTTPSourceHandler {
 
-  private static final Logger LOG = LoggerFactory.getLogger(org.apache.flume.source.http.BLOBHandler.class);
+  private static final Logger LOG = LoggerFactory.getLogger(com.act.maxc.flume.sources.http.handler.Binary2EventsHandler.class);
 
+  //必填消息头
   private String commaSeparatedHeaders;
 
   private String[] mandatoryHeaders;
 
   public static final String MANDATORY_PARAMETERS = "mandatoryParameters";
 
-  public static final String DEFAULT_MANDATORY_PARAMETERS = "";
-
+  public static final String DEFAULT_MANDATORY_PARAMETERS = "topic,messageFormat";
+  
   public static final String PARAMETER_SEPARATOR = ",";
+  
+  //Confluent Registry Server 默认的 serverUrl
+  private String serverUrl;
+  
+  //入库topic
+  private String topic; 
+  //获取schema
+  private static Schema schema;
+  
+  //消息格式: json、avro、csv
+  private String messageFormat;
+  
+  //如果解析csv还需要拆分符号
+  private String splitRegex = ",";
 
+  
   /**
    * {@inheritDoc}
    */
   @SuppressWarnings("unchecked")
-  public List<Event> getEvents(HttpServletRequest request) throws Exception {
-    Map<String, String> headers = new HashMap<String, String>();
+public List<Event> getEvents(HttpServletRequest request) throws Exception {
 
-    InputStream inputStream = request.getInputStream();
+	  //event header
+	  Map<String, String> headers = new HashMap<String, String>();
+	  
+	  //消息头header需要必填的属性
+	  for (String header : mandatoryHeaders) {
+		  Preconditions.checkArgument(headers.containsKey(header),
+				  "Please specify " + header + " parameter in the request.");
+	  }
+	  
+	//处理消息头
+	dealRequstHeaders(request);
+    //消息头添加
+    List<String> headersList = EnumerationUtils.toList( request.getHeaderNames());
+    for(String header :headersList) {
+    	String headerValue = request.getHeader(header);
+        if (LOG.isDebugEnabled() && LogPrivacyUtil.allowLogRawData()) {
+        	LOG.debug("Setting Header [Key, Value] as [{" +header + "},{" +headerValue + "}] ");
+          }
+        headers.put(header, headerValue);
+    }
 
+    headers.put("schema", schema.toString());
+    
+    //属性添加
     Map<String, String[]> parameters = request.getParameterMap();
     for (String parameter : parameters.keySet()) {
       String value = parameters.get(parameter)[0];
@@ -72,30 +117,54 @@ public class Binary2EventsHandler implements HTTPSourceHandler {
       headers.put(parameter, value);
     }
 
-    for (String header : mandatoryHeaders) {
-      Preconditions.checkArgument(headers.containsKey(header),
-          "Please specify " + header + " parameter in the request.");
-    }
+    InputStream inputStream = request.getInputStream();
 
-    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+    
     try {
-      IOUtils.copy(inputStream, outputStream);
-      LOG.debug("Building an Event with stream of size -- {}", outputStream.size());
-      Event event = EventBuilder.withBody(outputStream.toByteArray(), headers);
-      event.setHeaders(headers);
-      List<Event> eventList = new ArrayList<Event>();
-      eventList.add(event);
+    	List<Event> eventList = new ArrayList<Event>();
+    	
+    	switch (messageFormat) {
+    	case "json":
+    		eventList.addAll(JsonAvroUtils.jsonInputStreamToAvroEventList(inputStream, schema, headers));
+    		break;
+    	
+    	
+    	}
+    	
+      LOG.info("Building an Event List with size -- {}", eventList.size());
       return eventList;
     } finally {
-      outputStream.close();
       inputStream.close();
     }
   }
 
+  
+  private void dealRequstHeaders(HttpServletRequest request) {
+		//需要入库的topic
+		topic = request.getHeader("topic");
+		if(StringUtils.isNotBlank(request.getHeader("serverUrl"))) {
+			serverUrl = request.getHeader("serverUrl");
+		}
+		schema = SchemaRegistryServerUtils.getSchema(serverUrl, topic);
+		//消息格式
+		messageFormat = request.getHeader("messageFormat");
+		if(StringUtils.equalsIgnoreCase(messageFormat, "csv")) {
+			if(StringUtils.isNotBlank(request.getHeader("splitRegex"))) {
+				splitRegex = request.getHeader("splitRegex"); 
+			}else {
+				LOG.info("User doesn't specify splitRegex in 'csv' messageFormat, will use [,] as default splitRegex...");	
+			}
+			
+		}
+	}
+  
   public void configure(Context context) {
-    this.commaSeparatedHeaders = context.getString(MANDATORY_PARAMETERS,
-                                                   DEFAULT_MANDATORY_PARAMETERS);
-    this.mandatoryHeaders = commaSeparatedHeaders.split(PARAMETER_SEPARATOR);
+	  this.serverUrl = context.getString("Binary2EventsHandler.serverUrl", "http://localhost:58088");
+	  
+	    this.commaSeparatedHeaders = context.getString(MANDATORY_PARAMETERS,
+                DEFAULT_MANDATORY_PARAMETERS);
+	    this.mandatoryHeaders = commaSeparatedHeaders.split(PARAMETER_SEPARATOR);
+	  
   }
 
 }
