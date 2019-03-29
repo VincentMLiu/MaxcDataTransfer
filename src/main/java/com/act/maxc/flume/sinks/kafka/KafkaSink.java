@@ -201,6 +201,8 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
         counter.incrementEventDrainAttemptCount();
 
         byte[] eventBody = event.getBody();
+        System.out.println(eventBody);
+        logger.info(eventBody.toString());
         Map<String, String> headers = event.getHeaders();
 
         if (allowTopicOverride) {
@@ -263,8 +265,12 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
           }
           
           GenericRecord datum;
-          while (decoder.isEnd() && countCompact <= compactionRate) {
+          System.out.println(decoder.isEnd());
+          
+          while (!decoder.isEnd() && countCompact <= compactionRate) {
           	try {
+          		
+          		System.out.println("start decode");
           		datum = reader.read(null, decoder);
           		System.out.println(datum);
           		logger.info(datum.toString());
@@ -290,7 +296,8 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
             }
           }
           
-          
+          encoder.flush();
+          System.out.println(output);
           if (partitionId != null) {
               record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
               		output.toByteArray());

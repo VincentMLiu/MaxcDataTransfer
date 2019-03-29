@@ -158,7 +158,7 @@ public class AvroNullValueInterceptor implements Interceptor {
         writer = new GenericDatumWriter<GenericRecord>(schema);
         
         encoder =  EncoderFactory.get().binaryEncoder(output, null);
-		while (decoder.isEnd()) {
+		while (!decoder.isEnd()) {
 		    try {
 		        datum = reader.read(null, decoder);
 		        System.out.println(datum);

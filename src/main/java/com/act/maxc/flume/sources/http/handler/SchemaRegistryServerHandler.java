@@ -1,20 +1,3 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.act.maxc.flume.sources.http.handler;
 
 import com.act.maxc.flume.utils.JsonAvroUtils;
@@ -22,6 +5,7 @@ import com.act.maxc.flume.utils.SchemaRegistryServerUtils;
 import com.google.common.base.Preconditions;
 
 import org.apache.avro.Schema;
+import org.apache.commons.collections.EnumerationUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
@@ -41,7 +25,7 @@ import java.util.Map;
 
 /**
  *
- * BLOBHandler for HTTPSource that accepts any binary stream of data as event.
+ * SchemaRegistryServerHandler for HTTPSource that accepts formated binary stream of data as event.
  *
  */
 public class SchemaRegistryServerHandler implements HTTPSourceHandler {
@@ -73,7 +57,6 @@ public class SchemaRegistryServerHandler implements HTTPSourceHandler {
   
   
 private void dealRequstHeaders(HttpServletRequest request) {
-	
 	//需要入库的topic
 	topic = request.getHeader("topic");
 	schema = SchemaRegistryServerUtils.getSchema(serverUrl, topic);
@@ -84,28 +67,19 @@ private void dealRequstHeaders(HttpServletRequest request) {
 	}
 }
   
-  
-  /**
- * 
- * 
- * 
- * */
-@SuppressWarnings("unchecked")
-  public List<Event> getEvents(HttpServletRequest request) throws Exception {
-
+public List<Event> getEvents(HttpServletRequest request) throws Exception {
     //处理消息头
     dealRequstHeaders(request);
     //event header
     Map<String, String> headers = new HashMap<String, String>();
     Map<String, String[]> parameters = request.getParameterMap();
-    request.getHeaderNames();
+    List<String> headersList = EnumerationUtils.toList( request.getHeaderNames());
     
-    
-    
-    
-    
-    
-    
+    for(String header :headersList) {
+    	String headerValue = request.getHeader(header);
+    	headers.put(header, headerValue);
+    	System.out.println("Setting Header [Key, Value] as [{" +header + "},{" +headerValue + "}] ");
+    }
     
     for (String parameter : parameters.keySet()) {
     	String value = parameters.get(parameter)[0];
@@ -161,12 +135,6 @@ private void dealRequstHeaders(HttpServletRequest request) {
     this.serverUrl = context.getString("SchemaRegistryServerHandler.serverUrl", "http://localhost:58088");
   }
 
-  
-
-  
-  
-  
-  
   
   public static void main(String[] args) {
 //	  SchemaRegistryServerHandler sr = new SchemaRegistryServerHandler();
