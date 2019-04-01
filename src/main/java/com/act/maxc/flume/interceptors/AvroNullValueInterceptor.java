@@ -127,70 +127,69 @@ public class AvroNullValueInterceptor implements Interceptor {
     String serverUrl = headers.get("serverUrl");
     String nullField = headers.get("nullField");
     String nullValue = headers.get("nullValue");
-    String[] nullValueSpli = nullValue.split(",");
+    if(StringUtils.isNotBlank(nullValue)) {//如果nullValue不为空
+    	String[] nullValueSpli = nullValue.split(",");
+    	GenericDatumWriter<GenericRecord> writer = null;
+        ByteArrayOutputStream output = null;
+        Encoder encoder = null;
+        
+        String schemaStr = event.getHeaders().get("schema");
+        Schema schema;
+        if(StringUtils.isNotBlank(schemaStr)) {
+        	schema = new Schema.Parser().parse(schemaStr);
+        }else {
+        	schema = SchemaRegistryServerUtils.getSchema(serverUrl, subject);
+        }
+        InputStream inputStream = new ByteArrayInputStream(event.getBody());
+        
+        
+        DataInputStream dataInputStream = new DataInputStream(inputStream);
+        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+        BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
+        GenericRecord datum;
+        try {
+        	
+            output = new ByteArrayOutputStream();
+            writer = new GenericDatumWriter<GenericRecord>(schema);
+            
+            encoder =  EncoderFactory.get().binaryEncoder(output, null);
+    		while (!decoder.isEnd()) {
+    		    try {
+    		        datum = reader.read(null, decoder);
+    		        System.out.println(datum);
+    		        logger.info(datum.toString());
+    		        boolean join = true;
+    		        for(String value: nullValueSpli) {
+    		        	if(StringUtils.equalsIgnoreCase(value, datum.get(nullField).toString())) {
+    		        		//空值抛掉
+    		        		join = false;
+    		        		logger.info("drop");
+    		        		break;
+    		        	}else {
+    		        		//非空写入
+    		        		logger.info("join");
+    		        		join = true;
+    		        	}
+    		        }
+    		        if(join) {
+    		        	writer.write(datum, encoder);
+    		        }
+    		    } catch (EOFException eofe) {
+    		        break;
+    		    }
+    		}
+    		
+    		encoder.flush();
+    		event.setBody(output.toByteArray());
+    		output.close();
+    		
+    	} catch (IOException e) {
+    		e.printStackTrace();
+    	}
+    }
    
     
-	GenericDatumWriter<GenericRecord> writer = null;
-    ByteArrayOutputStream output = null;
-    Encoder encoder = null;
-    
-    String schemaStr = event.getHeaders().get("schema");
-    Schema schema;
-    if(StringUtils.isNotBlank(schemaStr)) {
-    	schema = new Schema.Parser().parse(schemaStr);
-    }else {
-    	schema = SchemaRegistryServerUtils.getSchema(serverUrl, subject);
-    	
-    }
-    InputStream inputStream = new ByteArrayInputStream(event.getBody());
-    
-    
-    DataInputStream dataInputStream = new DataInputStream(inputStream);
-    DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-    BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
-    
-
-    
-    GenericRecord datum;
-    try {
-    	
-        output = new ByteArrayOutputStream();
-        writer = new GenericDatumWriter<GenericRecord>(schema);
-        
-        encoder =  EncoderFactory.get().binaryEncoder(output, null);
-		while (!decoder.isEnd()) {
-		    try {
-		        datum = reader.read(null, decoder);
-		        System.out.println(datum);
-		        logger.info(datum.toString());
-		        boolean join = true;
-		        for(String value: nullValueSpli) {
-		        	if(StringUtils.equalsIgnoreCase(value, datum.get(nullField).toString())) {
-		        		//空值抛掉
-		        		join = false;
-		        		logger.info("drop");
-		        		break;
-		        	}else {
-		        		//非空写入
-		        		logger.info("join");
-		        		join = true;
-		        	}
-		        }
-		        if(join) {
-		        	writer.write(datum, encoder);
-		        }
-		    } catch (EOFException eofe) {
-		        break;
-		    }
-		}
-		
-		encoder.flush();
-		event.setBody(output.toByteArray());
-		output.close();
-		
-	} catch (IOException e) {
-		e.printStackTrace();
-	}
+	
     
     return event;
   }

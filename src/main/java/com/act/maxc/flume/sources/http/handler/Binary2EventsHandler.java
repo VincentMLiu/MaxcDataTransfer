@@ -23,13 +23,10 @@ import com.google.common.base.Preconditions;
 
 import org.apache.avro.Schema;
 import org.apache.commons.collections.EnumerationUtils;
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.conf.LogPrivacyUtil;
-import org.apache.flume.event.EventBuilder;
 import org.apache.flume.source.http.HTTPSourceHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -126,6 +123,12 @@ public List<Event> getEvents(HttpServletRequest request) throws Exception {
     	switch (messageFormat) {
     	case "json":
     		eventList.addAll(JsonAvroUtils.jsonInputStreamToAvroEventList(inputStream, schema, headers));
+    		break;
+    	case "csv":
+    		eventList.addAll(JsonAvroUtils.csvInputStreamToAvroEventList(inputStream, splitRegex,schema, headers));
+    		break;
+    	case "avro":
+    		eventList.addAll(JsonAvroUtils.avroInputStreamToAvroEventList(inputStream, schema, headers));
     		break;
     	
     	
