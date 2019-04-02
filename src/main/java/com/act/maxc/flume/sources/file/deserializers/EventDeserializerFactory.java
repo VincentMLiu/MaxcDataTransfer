@@ -37,7 +37,7 @@ public class EventDeserializerFactory {
       LoggerFactory.getLogger(EventDeserializerFactory.class);
 
   public static EventDeserializer getInstance(
-      String deserializerType, Context context, ResettableInputStream in, String topic) {
+      String deserializerType, Context context, ResettableInputStream in) {
 
     Preconditions.checkNotNull(deserializerType,
         "serializer type must not be null");

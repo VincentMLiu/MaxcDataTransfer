@@ -17,10 +17,9 @@
  */
 package com.act.maxc.flume.sources.file.deserializers;
 
-import com.google.common.annotations.VisibleForTesting;
+import com.act.maxc.flume.utils.SchemaRegistryServerUtils;
 import com.google.common.collect.Lists;
 import org.apache.avro.Schema;
-import org.apache.avro.SchemaNormalization;
 import org.apache.avro.file.DataFileConstants;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.SeekableInput;
@@ -29,7 +28,6 @@ import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.EncoderFactory;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.FlumeException;
@@ -44,177 +42,155 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * A deserializer that parses Avro container files, generating one Flume event
- * per record in the Avro file, and storing binary avro-encoded records in
- * the Flume event body.
+ * per record in the Avro file, and storing binary avro-encoded records in the
+ * Flume event body.
  */
 public class SchemaRegistryServerAvroEventDeserializer implements EventDeserializer {
 
-  private static final Logger logger = LoggerFactory.getLogger(SchemaRegistryServerAvroEventDeserializer.class);
+	private static final Logger logger = LoggerFactory.getLogger(SchemaRegistryServerAvroEventDeserializer.class);
 
-  private final AvroSchemaType schemaType;
-  private final ResettableInputStream ris;
+	private final ResettableInputStream ris;
 
-  private Schema schema;
-  private byte[] schemaHash;
-  private String schemaHashString;
-  private DataFileReader<GenericRecord> fileReader;
-  private GenericDatumWriter datumWriter;
-  private GenericRecord record;
-  private ByteArrayOutputStream out;
-  private BinaryEncoder encoder;
+	private Schema schema;
+	private DataFileReader<GenericRecord> fileReader;
+	private GenericDatumWriter<GenericRecord> datumWriter;
+	private GenericRecord record;
+	private ByteArrayOutputStream out;
+	private BinaryEncoder encoder;
 
-  @VisibleForTesting
-  public static enum AvroSchemaType {
-    HASH,
-    LITERAL;
-  }
+	
+	// 获取schema
+	private String schemaRegistryUrl;
+	private String topic;
+	
 
-  public static final String CONFIG_SCHEMA_TYPE_KEY = "schemaType";
-  public static final String AVRO_SCHEMA_HEADER_HASH
-      = "flume.avro.schema.hash";
-  public static final String AVRO_SCHEMA_HEADER_LITERAL
-      = "flume.avro.schema.literal";
+	public static final String SCHEMA_REGISTRY_URL = "schemaRegistryUrl";
+	
 
-  private SchemaRegistryServerAvroEventDeserializer(Context context, ResettableInputStream ris) {
-    this.ris = ris;
+	private SchemaRegistryServerAvroEventDeserializer(Context context, ResettableInputStream ris) {
+		this.ris = ris;
+		this.schemaRegistryUrl = context.getString(SCHEMA_REGISTRY_URL);
+		this.topic = context.getString("topic");
+		this.schema = SchemaRegistryServerUtils.getSchema(schemaRegistryUrl, topic);
+	}
 
-    schemaType = AvroSchemaType.valueOf(
-        context.getString(CONFIG_SCHEMA_TYPE_KEY,
-            AvroSchemaType.HASH.toString()).toUpperCase(Locale.ENGLISH));
-    if (schemaType == AvroSchemaType.LITERAL) {
-      logger.warn(CONFIG_SCHEMA_TYPE_KEY + " set to " +
-          AvroSchemaType.LITERAL.toString() + ", so storing full Avro " +
-          "schema in the header of each event, which may be inefficient. " +
-          "Consider using the hash of the schema " +
-          "instead of the literal schema.");
-    }
-  }
+	private void initialize() throws IOException, NoSuchAlgorithmException {
+		SeekableResettableInputBridge in = new SeekableResettableInputBridge(ris);
+		long pos = in.tell();
+		in.seek(0L);
+		fileReader = new DataFileReader<GenericRecord>(in, new GenericDatumReader<GenericRecord>());
+		fileReader.sync(pos);
 
-  private void initialize() throws IOException, NoSuchAlgorithmException {
-    SeekableResettableInputBridge in = new SeekableResettableInputBridge(ris);
-    long pos = in.tell();
-    in.seek(0L);
-    fileReader = new DataFileReader<GenericRecord>(in,
-        new GenericDatumReader<GenericRecord>());
-    fileReader.sync(pos);
+		datumWriter = new GenericDatumWriter<GenericRecord>(schema);
+		out = new ByteArrayOutputStream();
+		encoder = EncoderFactory.get().binaryEncoder(out, encoder);
 
-    schema = fileReader.getSchema();
-    datumWriter = new GenericDatumWriter(schema);
-    out = new ByteArrayOutputStream();
-    encoder = EncoderFactory.get().binaryEncoder(out, encoder);
+	}
 
-    schemaHash = SchemaNormalization.parsingFingerprint("CRC-64-AVRO", schema);
-    schemaHashString = Hex.encodeHexString(schemaHash);
-  }
+	public Event readEvent() throws IOException {
+		if (fileReader.hasNext()) {
+			record = fileReader.next(record);
+			out.reset();
+			datumWriter.write(record, encoder);
+			encoder.flush();
+			// annotate header with 64-bit schema CRC hash in hex
+			Event event = EventBuilder.withBody(out.toByteArray());
+			event.getHeaders().put("schema", schema.toString());
+			return event;
+		}
+		return null;
+	}
 
-  public Event readEvent() throws IOException {
-    if (fileReader.hasNext()) {
-      record = fileReader.next(record);
-      out.reset();
-      datumWriter.write(record, encoder);
-      encoder.flush();
-      // annotate header with 64-bit schema CRC hash in hex
-      Event event = EventBuilder.withBody(out.toByteArray());
-      if (schemaType == AvroSchemaType.HASH) {
-        event.getHeaders().put(AVRO_SCHEMA_HEADER_HASH, schemaHashString);
-      } else {
-        event.getHeaders().put(AVRO_SCHEMA_HEADER_LITERAL, schema.toString());
-      }
-      return event;
-    }
-    return null;
-  }
+	@Override
+	public List<Event> readEvents(int numEvents) throws IOException {
+		List<Event> events = Lists.newArrayList();
+		for (int i = 0; i < numEvents && fileReader.hasNext(); i++) {
+			Event event = readEvent();
+			if (event != null) {
+				events.add(event);
+			}
+		}
+		return events;
+	}
 
-  @Override
-  public List<Event> readEvents(int numEvents) throws IOException {
-    List<Event> events = Lists.newArrayList();
-    for (int i = 0; i < numEvents && fileReader.hasNext(); i++) {
-      Event event = readEvent();
-      if (event != null) {
-        events.add(event);
-      }
-    }
-    return events;
-  }
+	@Override
+	public void mark() throws IOException {
+		long pos = fileReader.previousSync() - DataFileConstants.SYNC_SIZE;
+		if (pos < 0)
+			pos = 0;
+		((RemoteMarkable) ris).markPosition(pos);
+	}
 
-  @Override
-  public void mark() throws IOException {
-    long pos = fileReader.previousSync() - DataFileConstants.SYNC_SIZE;
-    if (pos < 0) pos = 0;
-    ((RemoteMarkable) ris).markPosition(pos);
-  }
+	@Override
+	public void reset() throws IOException {
+		long pos = ((RemoteMarkable) ris).getMarkPosition();
+		fileReader.sync(pos);
+	}
 
-  @Override
-  public void reset() throws IOException {
-    long pos = ((RemoteMarkable) ris).getMarkPosition();
-    fileReader.sync(pos);
-  }
+	@Override
+	public void close() throws IOException {
+		ris.close();
+	}
 
-  @Override
-  public void close() throws IOException {
-    ris.close();
-  }
+	public static class Builder implements EventDeserializer.Builder {
 
-  public static class Builder implements EventDeserializer.Builder {
+		@Override
+		public EventDeserializer build(Context context, ResettableInputStream in) {
+			if (!(in instanceof RemoteMarkable)) {
+				throw new IllegalArgumentException(
+						"Cannot use this deserializer " + "without a RemoteMarkable input stream");
+			}
+			SchemaRegistryServerAvroEventDeserializer deserializer = new SchemaRegistryServerAvroEventDeserializer(
+					context, in);
+			try {
+				deserializer.initialize();
+			} catch (Exception e) {
+				throw new FlumeException("Cannot instantiate deserializer", e);
+			}
+			return deserializer;
+		}
+	}
 
-    @Override
-    public EventDeserializer build(Context context, ResettableInputStream in) {
-      if (!(in instanceof RemoteMarkable)) {
-        throw new IllegalArgumentException("Cannot use this deserializer " +
-            "without a RemoteMarkable input stream");
-      }
-      SchemaRegistryServerAvroEventDeserializer deserializer
-          = new SchemaRegistryServerAvroEventDeserializer(context, in);
-      try {
-        deserializer.initialize();
-      } catch (Exception e) {
-        throw new FlumeException("Cannot instantiate deserializer", e);
-      }
-      return deserializer;
-    }
-  }
+	private static class SeekableResettableInputBridge implements SeekableInput {
+		ResettableInputStream ris;
 
-  private static class SeekableResettableInputBridge implements SeekableInput {
-    ResettableInputStream ris;
+		public SeekableResettableInputBridge(ResettableInputStream ris) {
+			this.ris = ris;
+		}
 
-    public SeekableResettableInputBridge(ResettableInputStream ris) {
-      this.ris = ris;
-    }
+		@Override
+		public void seek(long p) throws IOException {
+			ris.seek(p);
+		}
 
-    @Override
-    public void seek(long p) throws IOException {
-      ris.seek(p);
-    }
+		@Override
+		public long tell() throws IOException {
+			return ris.tell();
+		}
 
-    @Override
-    public long tell() throws IOException {
-      return ris.tell();
-    }
+		@Override
+		public long length() throws IOException {
+			if (ris instanceof LengthMeasurable) {
+				return ((LengthMeasurable) ris).length();
+			} else {
+				// FIXME: Avro doesn't seem to complain about this,
+				// but probably not a great idea...
+				return Long.MAX_VALUE;
+			}
+		}
 
-    @Override
-    public long length() throws IOException {
-      if (ris instanceof LengthMeasurable) {
-        return ((LengthMeasurable) ris).length();
-      } else {
-        // FIXME: Avro doesn't seem to complain about this,
-        // but probably not a great idea...
-        return Long.MAX_VALUE;
-      }
-    }
+		@Override
+		public int read(byte[] b, int off, int len) throws IOException {
+			return ris.read(b, off, len);
+		}
 
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-      return ris.read(b, off, len);
-    }
-
-    @Override
-    public void close() throws IOException {
-      ris.close();
-    }
-  }
+		@Override
+		public void close() throws IOException {
+			ris.close();
+		}
+	}
 
 }

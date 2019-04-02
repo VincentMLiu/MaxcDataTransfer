@@ -18,7 +18,18 @@
 
 package com.act.maxc.flume.sources.file.deserializers;
 
+import com.act.maxc.flume.utils.JsonAvroUtils;
+import com.act.maxc.flume.utils.SchemaRegistryServerUtils;
 import com.google.common.collect.Lists;
+
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.Encoder;
+import org.apache.avro.io.EncoderFactory;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.annotations.InterfaceAudience;
@@ -30,7 +41,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -40,129 +53,171 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @InterfaceStability.Evolving
 public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 
-  private static final Logger logger = LoggerFactory.getLogger
-      (SchemaRegistryServerCsvDeserializer.class);
+	private static final Logger logger = LoggerFactory.getLogger(SchemaRegistryServerCsvDeserializer.class);
 
-  private final ResettableInputStream in;
-  private final Charset outputCharset;
-  private final int maxLineLength;
-  private volatile boolean isOpen;
+	private final ResettableInputStream in;
+	private final Charset outputCharset;
+	private final int maxLineLength;
+	private volatile boolean isOpen;
+	// 获取schema
+	private String schemaRegistryUrl;
+	private Schema schema;
+	private String topic;
 
-  public static final String OUT_CHARSET_KEY = "outputCharset";
-  public static final String CHARSET_DFLT = "UTF-8";
+	// 行分隔符
+	private String splitRegex;
 
-  public static final String MAXLINE_KEY = "maxLineLength";
-  public static final int MAXLINE_DFLT = 2048;
+	public static final String OUT_CHARSET_KEY = "outputCharset";
+	public static final String CHARSET_DFLT = "UTF-8";
 
-  SchemaRegistryServerCsvDeserializer(Context context, ResettableInputStream in) {
-    this.in = in;
-    this.outputCharset = Charset.forName(
-        context.getString(OUT_CHARSET_KEY, CHARSET_DFLT));
-    this.maxLineLength = context.getInteger(MAXLINE_KEY, MAXLINE_DFLT);
-    this.isOpen = true;
-  }
+	public static final String MAXLINE_KEY = "maxLineLength";
+	public static final int MAXLINE_DFLT = 2048;
 
-  /**
-   * Reads a line from a file and returns an event
-   * @return Event containing parsed line
-   * @throws IOException
-   */
-  @Override
-  public Event readEvent() throws IOException {
-    ensureOpen();
-    String line = readLine();
-    if (line == null) {
-      return null;
-    } else {
-      return EventBuilder.withBody(line, outputCharset);
-    }
-  }
+	public static final String SCHEMA_REGISTRY_URL = "schemaRegistryUrl";
+	public static final String SPLIT_REGEX = "splitRegex";
 
-  /**
-   * Batch line read
-   * @param numEvents Maximum number of events to return.
-   * @return List of events containing read lines
-   * @throws IOException
-   */
-  @Override
-  public List<Event> readEvents(int numEvents) throws IOException {
-    ensureOpen();
-    List<Event> events = Lists.newLinkedList();
-    for (int i = 0; i < numEvents; i++) {
-      Event event = readEvent();
-      if (event != null) {
-        events.add(event);
-      } else {
-        break;
-      }
-    }
-    return events;
-  }
+	SchemaRegistryServerCsvDeserializer(Context context, ResettableInputStream in) {
+		this.in = in;
+		this.outputCharset = Charset.forName(context.getString(OUT_CHARSET_KEY, CHARSET_DFLT));
+		this.maxLineLength = context.getInteger(MAXLINE_KEY, MAXLINE_DFLT);
+		//自定义属性
+		this.schemaRegistryUrl = context.getString(SCHEMA_REGISTRY_URL);
+		this.topic = context.getString("topic");
+		this.schema = SchemaRegistryServerUtils.getSchema(schemaRegistryUrl, topic);
+		this.splitRegex = context.getString(SPLIT_REGEX, ",");
+		this.isOpen = true;
+	}
 
-  @Override
-  public void mark() throws IOException {
-    ensureOpen();
-    in.mark();
-  }
+	/**
+	 * Reads a line from a file and returns an event
+	 * 
+	 * @return Event containing parsed line
+	 * @throws IOException
+	 */
+	@Override
+	public Event readEvent() throws IOException {
+		ensureOpen();
 
-  @Override
-  public void reset() throws IOException {
-    ensureOpen();
-    in.reset();
-  }
+		Map<String, String> headers = new HashMap<String, String>();
 
-  @Override
-  public void close() throws IOException {
-    if (isOpen) {
-      reset();
-      in.close();
-      isOpen = false;
-    }
-  }
+		GenericDatumWriter<GenericRecord> writer = null;
+		ByteArrayOutputStream output = null;
+		Encoder encoder = null;
 
-  private void ensureOpen() {
-    if (!isOpen) {
-      throw new IllegalStateException("Serializer has been closed");
-    }
-  }
+		output = new ByteArrayOutputStream();
+		writer = new GenericDatumWriter<GenericRecord>(schema);
 
-  // TODO: consider not returning a final character that is a high surrogate
-  // when truncating
-  private String readLine() throws IOException {
-    StringBuilder sb = new StringBuilder();
-    int c;
-    int readChars = 0;
-    while ((c = in.readChar()) != -1) {
-      readChars++;
+		encoder = EncoderFactory.get().binaryEncoder(output, null);
 
-      // FIXME: support \r\n
-      if (c == '\n') {
-        break;
-      }
+		String line = readLine();
+		List<Field> fieldList = schema.getFields();
+		headers.put("schema", schema.toString());
 
-      sb.append((char)c);
+		// System.out.println(lineStr);
+		String[] lineSpli = line.split(splitRegex);
+		// 解析字符相等才拆分序列化字符
+		if (lineSpli != null && lineSpli.length == fieldList.size()) {
+			GenericRecord datum = new GenericData.Record(schema);
+			JsonAvroUtils.putCsvDataIntoGenericRecord(datum, lineSpli, fieldList);
+			// System.out.println(datum);
+			writer.write(datum, encoder);
+			encoder.flush();
+			Event event = EventBuilder.withBody(output.toByteArray(), headers);
+			output.reset();
 
-      if (readChars >= maxLineLength) {
-        logger.warn("Line length exceeds max ({}), truncating line!",
-            maxLineLength);
-        break;
-      }
-    }
+			return event;
+		} else {
+			// 打印日志，说明某行解析错误，并统计
+			return null;
+		}
+	}
 
-    if (readChars > 0) {
-      return sb.toString();
-    } else {
-      return null;
-    }
-  }
+	/**
+	 * Batch line read
+	 * 
+	 * @param numEvents
+	 *            Maximum number of events to return.
+	 * @return List of events containing read lines
+	 * @throws IOException
+	 */
+	@Override
+	public List<Event> readEvents(int numEvents) throws IOException {
+		ensureOpen();
+		List<Event> events = Lists.newLinkedList();
+		for (int i = 0; i < numEvents; i++) {
+			Event event = readEvent();
+			if (event != null) {
+				events.add(event);
+			} else {
+				break;
+			}
+		}
+		return events;
+	}
 
-  public static class Builder implements EventDeserializer.Builder {
+	@Override
+	public void mark() throws IOException {
+		ensureOpen();
+		in.mark();
+	}
 
-    @Override
-    public EventDeserializer build(Context context, ResettableInputStream in) {
-      return new SchemaRegistryServerCsvDeserializer(context, in);
-    }
+	@Override
+	public void reset() throws IOException {
+		ensureOpen();
+		in.reset();
+	}
 
-  }
+	@Override
+	public void close() throws IOException {
+		if (isOpen) {
+			reset();
+			in.close();
+			isOpen = false;
+		}
+	}
+
+	private void ensureOpen() {
+		if (!isOpen) {
+			throw new IllegalStateException("Serializer has been closed");
+		}
+	}
+
+	// TODO: consider not returning a final character that is a high surrogate
+	// when truncating
+	private String readLine() throws IOException {
+		StringBuilder sb = new StringBuilder();
+		int c;
+		int readChars = 0;
+		while ((c = in.readChar()) != -1) {
+			readChars++;
+
+			// FIXME: support \r\n
+			if (c == '\n') {
+				break;
+			}
+
+			sb.append((char) c);
+
+			if (readChars >= maxLineLength) {
+				logger.warn("Line length exceeds max ({}), truncating line!", maxLineLength);
+				break;
+			}
+		}
+
+		if (readChars > 0) {
+			return sb.toString();
+		} else {
+			return null;
+		}
+	}
+
+	public static class Builder implements EventDeserializer.Builder {
+
+		@Override
+		public EventDeserializer build(Context context, ResettableInputStream in) {
+			return new SchemaRegistryServerCsvDeserializer(context, in);
+		}
+
+	}
 
 }

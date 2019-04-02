@@ -402,8 +402,16 @@ public class ReliableSpoolingFileEventReader implements ReliableEventReader {
 	}
 
 	private void fillHeader(List<Event> events) {
+		String filename = currentFile.get().getFile().getAbsolutePath();
+		String[] filePathSpli = filename.split("/");
+		String topic = filePathSpli[filePathSpli.length - 2];
+		if(StringUtils.isNotBlank(topic)) {
+			for (Event event : events) {
+				event.getHeaders().put("topic", topic);
+			}
+		}
+		
 		if (annotateFileName) {
-			String filename = currentFile.get().getFile().getAbsolutePath();
 			for (Event event : events) {
 				event.getHeaders().put(fileNameHeader, filename);
 			}
@@ -673,11 +681,13 @@ public class ReliableSpoolingFileEventReader implements ReliableEventReader {
 
 			EventDeserializer deserializer;
 			if (StringUtils.equalsIgnoreCase("csv", fileType)) {
-				deserializer = EventDeserializerFactory.getInstance("SRSC", deserializerContext, in, topic);
+				deserializerContext.put("topic", topic);
+				deserializer = EventDeserializerFactory.getInstance("SRSC", deserializerContext, in);
 			} else if (StringUtils.equalsIgnoreCase("avro", fileType)) {
-				deserializer = EventDeserializerFactory.getInstance("SRSA", deserializerContext, in, topic);
+				deserializerContext.put("topic", topic);
+				deserializer = EventDeserializerFactory.getInstance("SRSA", deserializerContext, in);
 			} else {
-				deserializer = EventDeserializerFactory.getInstance(deserializerType, deserializerContext, in, topic);
+				deserializer = EventDeserializerFactory.getInstance(deserializerType, deserializerContext, in);
 			}
 
 			return Optional.of(new FileInfo(file, deserializer));

@@ -3,12 +3,17 @@ package com.act.maxc.flume.utils;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
+import java.security.NoSuchAlgorithmException;
 
 import org.apache.avro.Schema;
+import org.apache.avro.SchemaNormalization;
+import org.apache.commons.codec.DecoderException;
+import org.apache.commons.codec.binary.Hex;
 
 import com.alibaba.fastjson.JSONObject;
 
@@ -49,7 +54,29 @@ public class SchemaRegistryServerUtils {
 	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
-
+		
+		Schema schema = getSchema("http://172.30.132.141:58088", "test2");
+		
+	    
+		try {
+			byte[] schemaHash = SchemaNormalization.parsingFingerprint("CRC-64-AVRO", schema);
+			String schemaHashString = Hex.encodeHexString(schemaHash);
+			System.out.println(schemaHashString);
+			byte[] schemaHashde = Hex.decodeHex(schemaHashString.toCharArray());
+			
+			
+			System.out.println(new String(schemaHash, "CRC-64-AVRO"));
+		} catch (NoSuchAlgorithmException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (DecoderException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (UnsupportedEncodingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
 	}
 
 }
