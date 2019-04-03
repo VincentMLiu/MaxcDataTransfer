@@ -112,7 +112,9 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 		String line = readLine();
 		List<Field> fieldList = schema.getFields();
 		headers.put("schema", schema.toString());
-
+		headers.put("serverUrl", schemaRegistryUrl);
+		
+		
 		// System.out.println(lineStr);
 		String[] lineSpli = line.split(splitRegex);
 		// 解析字符相等才拆分序列化字符

@@ -99,6 +99,7 @@ public class SchemaRegistryServerAvroEventDeserializer implements EventDeseriali
 			// annotate header with 64-bit schema CRC hash in hex
 			Event event = EventBuilder.withBody(out.toByteArray());
 			event.getHeaders().put("schema", schema.toString());
+			event.getHeaders().put("serverUrl", schemaRegistryUrl);
 			return event;
 		}
 		return null;
