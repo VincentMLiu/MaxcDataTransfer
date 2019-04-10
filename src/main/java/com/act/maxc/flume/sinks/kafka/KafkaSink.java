@@ -155,13 +155,7 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 		Channel channel = getChannel();
 		Transaction transaction = null;
 		Event event = null;
-		String eventTopic = null;
-		String eventKey = null;
-
-		GenericDatumWriter<GenericRecord> writer = null;
-		ByteArrayOutputStream output = null;
-		Encoder encoder = null;
-		int countCompact = 0;
+		// String eventKey = null;
 
 		try {
 			long processedEvents = 0;
@@ -170,8 +164,17 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 			transaction.begin();
 
 			kafkaFutures.clear();
+
+			bufferedEventListsMap = new HashMap<String, List<Event>>();
 			long batchStartTime = System.nanoTime();
 			for (; processedEvents < batchSize; processedEvents += 1) {
+				long waitTimeNow = System.nanoTime();
+				// 初始化bufferMap
+
+				if (waitTime <= (waitTimeNow - batchStartTime)) { // waitTime到，开始刷新到kafka
+					logger.info("stop get event from channel,then flush to kafka now");
+					break;
+				}
 				event = channel.take();
 				if (event == null) {
 					// no events available in channel
@@ -185,123 +188,16 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 				}
 				counter.incrementEventDrainAttemptCount();
 
-				byte[] eventBody = event.getBody();
-				logger.info(eventBody.toString());
-				Map<String, String> headers = event.getHeaders();
-
-				if (allowTopicOverride) {
-					eventTopic = headers.get(topicHeader);
-					if (eventTopic == null) {
-						eventTopic = BucketPath.escapeString(topic, event.getHeaders());
-						logger.debug("{} was set to true but header {} was null. Producing to {}" + " topic instead.",
-								new Object[] { KafkaSinkConstants.ALLOW_TOPIC_OVERRIDE_HEADER, topicHeader,
-										eventTopic });
-					}
-				} else {
-					eventTopic = topic;
-				}
-
-				eventKey = headers.get(KEY_HEADER);
-				if (logger.isTraceEnabled()) {
-					if (LogPrivacyUtil.allowLogRawData()) {
-						logger.trace(
-								"{Event} " + eventTopic + " : " + eventKey + " : " + new String(eventBody, "UTF-8"));
-					} else {
-						logger.trace("{Event} " + eventTopic + " : " + eventKey);
-					}
-				}
 				logger.debug("event #{}", processedEvents);
 
 				// create a message and add to buffer
 
-				Integer partitionId = null;
-				try {
-					ProducerRecord<String, byte[]> record;
-					if (staticPartitionId != null) {
-						partitionId = staticPartitionId;
-					}
-					// Allow a specified header to override a static ID
-					if (partitionHeader != null) {
-						String headerVal = event.getHeaders().get(partitionHeader);
-						if (headerVal != null) {
-							partitionId = Integer.parseInt(headerVal);
-						}
-					}
+				// 分类event
+				categorizeBufferEvent(event);
 
-					long startTime = System.currentTimeMillis();
-					// 初始化bufferMap
-					bufferedEventListsMap = new HashMap<String, List<Event>>();
-
-					categorizeBufferEvent(event);
-
-					// 每个EVENT对应输出到不同的kafka record因为下一个event有可能是不同的topic
-					// 压缩
-					String schemaStr = event.getHeaders().get("schema");
-					Schema schema = new Schema.Parser().parse(schemaStr);
-					// 解析event body
-					DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-					BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(new ByteArrayInputStream(eventBody),
-							null);
-
-					// 新建输出流和writer
-					output = new ByteArrayOutputStream();
-					writer = new GenericDatumWriter<GenericRecord>(schema);
-					// 根据配置选择压缩编码器
-					if (StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
-						encoder = EncoderFactory.get().binaryEncoder(output, null);
-					} else if (StringUtils.equalsIgnoreCase("json", compactionFormat)) {
-						encoder = EncoderFactory.get().jsonEncoder(schema, output);
-					}
-
-					GenericRecord datum;
-					System.out.println(decoder.isEnd());
-
-					while (!decoder.isEnd() && countCompact <= compactionRate) {
-						try {
-
-							System.out.println("start decode");
-							datum = reader.read(null, decoder);
-							logger.info(datum.toString());
-						} catch (EOFException eofe) {
-							break;
-						}
-						writer.write(datum, encoder);
-						countCompact++;
-						if (countCompact > compactionRate) {
-							encoder.flush();
-
-							// create a message and add to buffer
-							if (partitionId != null) {
-								record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
-										output.toByteArray());
-							} else {
-								record = new ProducerRecord<String, byte[]>(eventTopic, eventKey, output.toByteArray());
-							}
-							kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
-							output = new ByteArrayOutputStream();
-							countCompact = 0;// 重新进入循环
-						}
-					}
-
-					encoder.flush();
-					System.out.println(output);
-					if (partitionId != null) {
-						record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
-								output.toByteArray());
-					} else {
-						record = new ProducerRecord<String, byte[]>(eventTopic, eventKey, output.toByteArray());
-					}
-					kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
-				} catch (NumberFormatException ex) {
-					throw new EventDeliveryException("Non integer partition id specified", ex);
-				} catch (Exception ex) {
-					// N.B. The producer.send() method throws all sorts of RuntimeExceptions
-					// Catching Exception here to wrap them neatly in an EventDeliveryException
-					// which is what our consumers will expect
-					throw new EventDeliveryException("Could not send event", ex);
-				}
 			}
 
+			addBufferedEventListsMap2Producer();
 			// Prevent linger.ms from holding the batch
 			producer.flush();
 
@@ -377,7 +273,7 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 		// 支持json和avro
 		compactionFormat = context.getString("compactionFormat", "avro");
 		compactionRate = context.getInteger("compactionRate", 100);
-		waitTime = context.getLong("waitTime", 10000l);
+		waitTime = context.getLong("waitTime", 10000000000l);
 
 		String topicStr = context.getString(TOPIC_CONFIG);
 		if (topicStr == null || topicStr.isEmpty()) {
@@ -419,6 +315,8 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 
 		setProducerProps(context, bootStrapServers);
 
+		logger.info("Kafka producer properties: {}", kafkaProps);
+		
 		if (logger.isDebugEnabled() && LogPrivacyUtil.allowLogPrintConfig()) {
 			logger.debug("Kafka producer properties: {}", kafkaProps);
 		}
@@ -538,6 +436,7 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 		String topic = event.getHeaders().get("topic");
 		List<Event> topicList = bufferedEventListsMap.get(topic);
 		if (topicList == null) { // 如果还不存在该topic
+			logger.info("Get a New Topic " + topic);
 			topicList = new ArrayList<Event>();
 			topicList.add(event);
 			bufferedEventListsMap.put(topic, topicList);
@@ -548,31 +447,68 @@ public class KafkaSink extends AbstractSink implements Configurable, BatchSizeSu
 
 	}
 
-	private void compactBufferedEventListsMap() {
-		Map<String, ProducerRecord<String, byte[]>> kafkaRecordMap = new HashMap<String, ProducerRecord<String, byte[]>>();
-		
-		Set<String> keySet = bufferedEventListsMap.keySet();
-		for(String key : keySet) {
-			List<Event> topicList = bufferedEventListsMap.get(key);
-			if(topicList!=null && !topicList.isEmpty()) {
+	private void addBufferedEventListsMap2Producer() throws IOException {
 
+		Set<String> keySet = bufferedEventListsMap.keySet();
+		for (String topic : keySet) {
+			List<Event> topicList = bufferedEventListsMap.get(topic);
+
+			logger.info("now dealing topic [" + topic + "] with " + topicList.size() + " events.");
+			if (topicList != null && !topicList.isEmpty()) {
+				ProducerRecord<String, byte[]> record;
+				GenericDatumWriter<GenericRecord> writer = null;
+				ByteArrayOutputStream output = new ByteArrayOutputStream(10000000);
+				Encoder encoder = null;
+				int countCompact = 0;
+
+				String schemaStr = topicList.get(0).getHeaders().get("schema");
+				Schema schema = new Schema.Parser().parse(schemaStr);
+				// 新建输出流和writer
+				writer = new GenericDatumWriter<GenericRecord>(schema);
+
+				// 根据配置选择压缩编码器
+				if (StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
+					encoder = EncoderFactory.get().binaryEncoder(output, null);
+				} else if (StringUtils.equalsIgnoreCase("json", compactionFormat)) {
+					encoder = EncoderFactory.get().jsonEncoder(schema, output);
+				}
+
+				DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+
+				for (Event event : topicList) {
+					// 压缩
+					// 解析event body
+					BinaryDecoder decoder = DecoderFactory.get()
+							.binaryDecoder(new ByteArrayInputStream(event.getBody()), null);
+
+					GenericRecord datum;
+					while (!decoder.isEnd()) {
+						datum = reader.read(null, decoder);
+						writer.write(datum, encoder);
+						countCompact++;
+					}
+
+					if (countCompact >= compactionRate) {
+						encoder.flush();
+						// create a message and add to buffer
+						record = new ProducerRecord<String, byte[]>(topic, output.toByteArray());
+						long startTime = System.currentTimeMillis();
+						kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
+						output.reset();
+						countCompact = 0;// 重新进入循环
+					}
+
+				}
+				encoder.flush();
+				if(output.size()>0) {
+					record = new ProducerRecord<String, byte[]>(topic, output.toByteArray());
+					long startTime = System.currentTimeMillis();
+					kafkaFutures.add(producer.send(record, new SinkCallback(startTime)));
+				}
 			}
-			
 		}
 	}
-	
-	private ProducerRecord<String, byte[]> compactTopicList2ProducerRecord(List<Event> topicList, String eventTopic){
-		ProducerRecord<String, byte[]>  record ;
-		for(Event event: topicList) {
-			
-		}
-		
-		record = new ProducerRecord<String, byte[]>(eventTopic, partitionId, eventKey,
-				output.toByteArray());
-		
-		return record;
-	}
-	
+
 }
 
 class SinkCallback implements Callback {

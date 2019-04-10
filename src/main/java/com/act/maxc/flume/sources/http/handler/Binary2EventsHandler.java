@@ -83,15 +83,7 @@ public List<Event> getEvents(HttpServletRequest request) throws Exception {
 
 	  //event header
 	  Map<String, String> headers = new HashMap<String, String>();
-	  
-	  //消息头header需要必填的属性
-	  for (String header : mandatoryHeaders) {
-		  Preconditions.checkArgument(headers.containsKey(header),
-				  "Please specify " + header + " parameter in the request.");
-	  }
-	  
-	//处理消息头
-	dealRequstHeaders(request);
+
     //消息头添加
     List<String> headersList = EnumerationUtils.toList( request.getHeaderNames());
     for(String header :headersList) {
@@ -102,8 +94,15 @@ public List<Event> getEvents(HttpServletRequest request) throws Exception {
         headers.put(header, headerValue);
     }
 
-    headers.put("schema", schema.toString());
+	  //消息头header需要必填的属性
+	  for (String header : mandatoryHeaders) {
+		  Preconditions.checkArgument(headers.containsKey(header),
+				  "Please specify " + header + " parameter in the request.");
+	  }
     
+	  dealRequstHeaders(request);
+    headers.put("schema", schema.toString());
+	//处理消息头
     //属性添加
     Map<String, String[]> parameters = request.getParameterMap();
     for (String parameter : parameters.keySet()) {

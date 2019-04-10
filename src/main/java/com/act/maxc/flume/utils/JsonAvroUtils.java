@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -14,6 +15,7 @@ import java.util.Map;
 
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
@@ -21,6 +23,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.Decoder;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
@@ -369,7 +372,7 @@ public class JsonAvroUtils {
 	 */
 	public static void main(String[] args) {
 
-		String schemaStr = "{\"type\":\"record\",\"name\":\"Payment\",\"fields\":[{\"name\":\"ids\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"}]}";
+		String schemaStr = "{\"type\":\"record\",\"name\":\"testKafka\",\"fields\":[{\"name\":\"id\",\"type\":\"double\"},{\"name\":\"amount\",\"type\":\"double\"}]}";
 
 		Schema schema = new Schema.Parser().parse(schemaStr);
 		String jsonStr = "{\"ids\" : \"aaa\", \"amount\" : 100 }{\"ids\" : \"bbb\", \"amount\" : 101 }";
@@ -380,48 +383,28 @@ public class JsonAvroUtils {
 
 		BufferedReader br = new BufferedReader(new InputStreamReader(is));
 
-		List<Event> evtList = jsonInputStreamToAvroEventList(is, schema, new HashMap<String, String>());
-		
-		DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+//		List<Event> evtList = jsonInputStreamToAvroEventList(is, schema, new HashMap<String, String>());
 		
 		
-		for(Event evt : evtList) {
-			
-			BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(evt.getBody(), null);
-			GenericRecord datum;
-			try {
-				while (!decoder.isEnd()) {
-					try {
-						datum = reader.read(null, decoder);
-						System.out.println(datum);
-					} catch (EOFException eofe) {
-						break;
-					}
-				}
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+        File file = new File("test2.avro");
+        DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);
+        DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<GenericRecord>(datumWriter);
+        try {
+			dataFileWriter.create(schema, file);
+			GenericRecord test2;
+			for(int i =0; i < 1000000; i ++) {
+				test2 = new GenericData.Record(schema);
+				test2.put("id", i + 0.1);
+				test2.put("amount", i + 6.1);
+				dataFileWriter.append(test2);
 			}
+//			System.out.println(test2);
+			dataFileWriter.close();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
 		}
-		
-		String filePath = "/home/fraud_topic/black_full/black_full.csv";
-	      String[] filePathSpli = filePath.split("/");
-	      String topic = filePathSpli[filePathSpli.length -2];
-	     String suffix =  filePath .substring(filePath.lastIndexOf(".") +1, filePath.length());
-		System.out.println(suffix);
-//		try {
-//			String line;
-//			while ((line = br.readLine()) != null) {
-//				GenericRecord datum = new GenericData.Record(schema);
-//				System.out.println(line);
-//				String[] lineSpli = line.split(",");
-//				putCsvDataIntoGenericRecord(datum, lineSpli, schema.getFields());
-//				System.out.println(datum);
-//			}
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
+
 
 	}
 

@@ -114,7 +114,10 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 		headers.put("schema", schema.toString());
 		headers.put("serverUrl", schemaRegistryUrl);
 		
-		
+		if(line == null ) {
+			// 打印日志，说明某行解析错误，并统计
+			return null;
+		}
 		// System.out.println(lineStr);
 		String[] lineSpli = line.split(splitRegex);
 		// 解析字符相等才拆分序列化字符
