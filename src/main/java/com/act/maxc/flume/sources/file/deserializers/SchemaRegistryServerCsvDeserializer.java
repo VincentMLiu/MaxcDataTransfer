@@ -73,8 +73,8 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 	public static final String MAXLINE_KEY = "maxLineLength";
 	public static final int MAXLINE_DFLT = 2048;
 
-	public static final String SCHEMA_REGISTRY_URL = "SchemaRegistryServerCsvDeserializer.schemaRegistryUrl";
-	public static final String SPLIT_REGEX = "SchemaRegistryServerCsvDeserializer.splitRegex";
+	public static final String SCHEMA_REGISTRY_URL = "deserializer.schemaRegistryUrl";
+	public static final String SPLIT_REGEX = "deserializer.splitRegex";
 
 	SchemaRegistryServerCsvDeserializer(Context context, ResettableInputStream in) {
 		this.in = in;
