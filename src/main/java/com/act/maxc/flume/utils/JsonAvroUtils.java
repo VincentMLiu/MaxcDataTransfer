@@ -372,16 +372,16 @@ public class JsonAvroUtils {
 	 */
 	public static void main(String[] args) {
 
-		String schemaStr = "{\"type\":\"record\",\"name\":\"testKafka\",\"fields\":[{\"name\":\"id\",\"type\":\"double\"},{\"name\":\"amount\",\"type\":\"double\"}]}";
+		String schemaStr = "{\"type\":\"record\",\"name\":\"testKafka\",\"fields\":[{\"name\":\"id\",\"type\":[\"double\", \"null\"]},{\"name\":\"amount\",\"type\":\"double\"}]}";
 
 		Schema schema = new Schema.Parser().parse(schemaStr);
-		String jsonStr = "{\"ids\" : \"aaa\", \"amount\" : 100 }{\"ids\" : \"bbb\", \"amount\" : 101 }";
-
-		String csv = "1,101\n" + "2,102\n" + "3,103\n" + "4,104";
-
-		InputStream is = new ByteArrayInputStream(jsonStr.getBytes());
-
-		BufferedReader br = new BufferedReader(new InputStreamReader(is));
+//		String jsonStr = "{\"ids\" : \"aaa\", \"amount\" : 100 }{\"ids\" : \"bbb\", \"amount\" : 101 }";
+//
+//		String csv = "1,101\n" + "2,102\n" + "3,103\n" + "4,104";
+//
+//		InputStream is = new ByteArrayInputStream(jsonStr.getBytes());
+//
+//		BufferedReader br = new BufferedReader(new InputStreamReader(is));
 
 //		List<Event> evtList = jsonInputStreamToAvroEventList(is, schema, new HashMap<String, String>());
 		
@@ -392,12 +392,17 @@ public class JsonAvroUtils {
         try {
 			dataFileWriter.create(schema, file);
 			GenericRecord test2;
-			for(int i =0; i < 1000000; i ++) {
+			for(int i =0; i < 100000; i ++) {
 				test2 = new GenericData.Record(schema);
 				test2.put("id", i + 0.1);
 				test2.put("amount", i + 6.1);
 				dataFileWriter.append(test2);
 			}
+			
+			test2 = new GenericData.Record(schema);
+			test2.put("id", null);
+			test2.put("amount", 161.2);
+			dataFileWriter.append(test2);
 //			System.out.println(test2);
 			dataFileWriter.close();
 		} catch (IOException e) {

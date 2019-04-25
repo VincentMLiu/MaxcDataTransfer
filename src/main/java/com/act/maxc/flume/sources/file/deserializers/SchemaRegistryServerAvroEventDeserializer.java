@@ -67,7 +67,7 @@ public class SchemaRegistryServerAvroEventDeserializer implements EventDeseriali
 	private String topic;
 	
 
-	public static final String SCHEMA_REGISTRY_URL = "schemaRegistryUrl";
+	public static final String SCHEMA_REGISTRY_URL = "deserializer.schemaRegistryUrl";
 	
 
 	private SchemaRegistryServerAvroEventDeserializer(Context context, ResettableInputStream ris) {
