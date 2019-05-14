@@ -18,7 +18,7 @@
 
 package com.act.maxc.flume.sinks.kafka;
 
-import org.apache.kafka.clients.CommonClientConfigs;
+//import org.apache.kafka.clients.CommonClientConfigs;
 
 public class KafkaSinkConstants {
 
@@ -29,8 +29,8 @@ public class KafkaSinkConstants {
 
   public static final String TOPIC_CONFIG = KAFKA_PREFIX + "topic";
   public static final String BATCH_SIZE = "flumeBatchSize";
-  public static final String BOOTSTRAP_SERVERS_CONFIG =
-      KAFKA_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
+//  public static final String BOOTSTRAP_SERVERS_CONFIG =
+//      KAFKA_PREFIX + CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 
   public static final String KEY_HEADER = "key";
   public static final String DEFAULT_TOPIC_OVERRIDE_HEADER = "topic";
