@@ -79,9 +79,9 @@ import java.util.ArrayList;
  * topic
  * key
  */
-public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
+public class AvroEventKafkaSink extends AbstractSink implements Configurable {
 
-  private static final Logger logger = LoggerFactory.getLogger(AvroCompactKafkaSink.class);
+  private static final Logger logger = LoggerFactory.getLogger(AvroEventKafkaSink.class);
   public static final String KEY_HDR = "key";
   public static final String TOPIC_HDR = "topic";
   private Properties kafkaProps;
@@ -92,8 +92,8 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
   private KafkaSinkCounter counter;
 
   private String compactionFormat;
-  private int compactionRate;
-  private long waitTime;
+//  private int compactionRate;
+//  private long waitTime;
   
   @Override
   public Status process() throws EventDeliveryException {
@@ -117,7 +117,8 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
 
       messageList.clear();
       
-      int countCompact = 0;
+      output = new ByteArrayOutputStream();
+      
       for (; processedEvents < batchSize; processedEvents += 1) {
         event = channel.take();
 
@@ -139,40 +140,33 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
         //压缩
         String schemaStr = event.getHeaders().get("schema");
         Schema schema = new Schema.Parser().parse(schemaStr);
+        writer = new GenericDatumWriter<GenericRecord>(schema);
         
     	DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(eventBody));
         DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
         BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
         
-        output = new ByteArrayOutputStream();
-        writer = new GenericDatumWriter<GenericRecord>(schema);
-        
-        if(StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
-        	encoder =  EncoderFactory.get().binaryEncoder(output, null);
-        } else  {
-        	encoder = EncoderFactory.get().jsonEncoder(schema, output);
-        }
+		// 根据配置选择压缩编码器
+		if (StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
+			encoder = EncoderFactory.get().binaryEncoder(output, null);
+		} else if (StringUtils.equalsIgnoreCase("json", compactionFormat)) {
+			encoder = EncoderFactory.get().jsonEncoder(schema, output);
+		}
         GenericRecord datum;
-        while (decoder.isEnd() && countCompact <= compactionRate) {
+        while (decoder.isEnd()) {
         	try {
         		datum = reader.read(null, decoder);
-        		System.out.println(datum);
         	} catch (EOFException eofe) {
         		break;
         	}
         	writer.write(datum, encoder);
-        	countCompact++;
         }
-        if(countCompact > compactionRate) {
         	encoder.flush();
         	// create a message and add to buffer
         	KeyedMessage<String, byte[]> data = new KeyedMessage<String, byte[]>
         	(eventTopic, eventKey, output.toByteArray());
         	messageList.add(data);
-        	output.close();
-        	output = new ByteArrayOutputStream();
-        	countCompact = 0;
-        }
+        	output.reset();
         
         if (logger.isDebugEnabled()) {
           logger.debug("{Event} " + eventTopic + " : " + eventKey + " : "
@@ -182,12 +176,7 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
 
       }
       
-      encoder.flush();
-      // create a message and add to buffer
-      KeyedMessage<String, byte[]> data = new KeyedMessage<String, byte[]>
-      (eventTopic, eventKey,  output.toByteArray());
-      messageList.add(data);
-
+      output.close();
       // publish batch and commit.
       if (processedEvents > 0) {
         long startTime = System.nanoTime();
@@ -264,8 +253,8 @@ public class AvroCompactKafkaSink extends AbstractSink implements Configurable {
 
     //支持json和avro
     compactionFormat = context.getString("compactionFormat", "avro");
-    compactionRate = context.getInteger("compactionRate", 100);
-    waitTime = context.getLong("waitTime", 10000l);
+//    compactionRate = context.getInteger("compactionRate", 100);
+//    waitTime = context.getLong("waitTime", 10000l);
     
     
     topic = context.getString(KafkaSinkConstants.TOPIC_CONFIG,

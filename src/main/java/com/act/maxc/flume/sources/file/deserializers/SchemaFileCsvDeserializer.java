@@ -83,7 +83,7 @@ public class SchemaFileCsvDeserializer implements EventDeserializer {
 		this.maxLineLength = context.getInteger(MAXLINE_KEY, MAXLINE_DFLT);
 		//自定义属性
 		this.schemaFilePath = context.getString(SCHEMA_FILE_PATH);
-		this.topic = context.getString("topic");
+		this.topic = context.getString("deserializer.topic");
 		File schemaFile = new File(schemaFilePath);
 		Schema.Parser parser = new Schema.Parser();
 		try {
@@ -122,7 +122,7 @@ public class SchemaFileCsvDeserializer implements EventDeserializer {
 		List<Field> fieldList = schema.getFields();
 		headers.put("schema", schema.toString());
 		headers.put("schemaFilePath", schemaFilePath);
-		
+		headers.put("topic", this.topic);
 		if(line == null ) {
 			// 打印日志，说明某行解析错误，并统计
 			return null;
