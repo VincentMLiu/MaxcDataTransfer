@@ -1,0 +1,1 @@
+nohup sh /home/maxc_platform/maxc_flume/apache-flume-1.9.0-bin/bin/flume-ng agent -n HuizhiFtp2Avro -c /home/maxc_platform/maxc_flume/apache-flume-1.9.0-bin/conf --conf-file /home/maxc_platform/maxc_flume/flumeConf/HuizhiFtp2Avro.conf >> HuizhiFtp2Avro.log &
