@@ -18,13 +18,31 @@
 
 package com.act.maxc.flume.interceptors;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.List;
+
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
+import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
+import org.apache.flume.event.EventBuilder;
 import org.apache.flume.interceptor.Interceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Preconditions;
 
 /**
  * Simple Interceptor class that sets the host name or IP on all events
@@ -57,59 +75,74 @@ import org.slf4j.LoggerFactory;
  * </code>
  *
  */
-public class ReplaceLineDelimitedInterceptor implements Interceptor {
+public class AvroObj2DelimitedLineInterceptor implements Interceptor {
 
   private static final Logger logger = LoggerFactory
-          .getLogger(ReplaceLineDelimitedInterceptor.class);
-	private final String originalDelimiter;
+          .getLogger(AvroObj2DelimitedLineInterceptor.class);
 	private final String newDelimiter;
-
+	private final Schema schema;
+	private List<String> fieldNameList = new ArrayList<String>();
+	private DatumReader<GenericRecord> reader;
   /**
-   * Only {@link ReplaceLineDelimitedInterceptor.Builder} can build me
+   * Only {@link AvroObj2DelimitedLineInterceptor.Builder} can build me
    */
-  private ReplaceLineDelimitedInterceptor(String originalDelimiter, String newDelimiter) {
-    this.originalDelimiter = originalDelimiter;
+  private AvroObj2DelimitedLineInterceptor(Schema schema, String newDelimiter) {
     this.newDelimiter = newDelimiter;
+    this.schema = schema;
 
   }
 
   @Override
   public void initialize() {
-    // no-op
+	  List<Field>  fieldList = schema.getFields();
+	  for(Field fd : fieldList) {
+		  fieldNameList.add(fd.name());
+	  }
+	  
+	 reader = new GenericDatumReader<GenericRecord>(schema);
   }
 
   /**
    * Modifies events in-place.
    */
   @Override
-  public Event intercept(Event event) {
-    
-    String oldBody = "";
-	try {
-		oldBody = new String(event.getBody(), "UTF-8");
-	} catch (UnsupportedEncodingException e) {
-		// TODO Auto-generated catch block
-		e.printStackTrace();
+	public Event intercept(Event event) {
+
+		GenericRecord datum;
+		BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(event.getBody(), null);
+
+		String newBody = "";
+		try {
+			
+			while (!decoder.isEnd()) {
+				datum = reader.read(null, decoder);
+				StringBuffer sb = new StringBuffer();
+				for (String col : fieldNameList) {
+					Object colObj = datum.get(col);
+
+					if (colObj != null) {
+						sb.append(colObj.toString().trim()).append(newDelimiter);
+					} else {
+						sb.append(newDelimiter);
+					}
+
+				}
+
+				String newSingleBody = sb.toString();
+				newSingleBody = newSingleBody.substring(0, newSingleBody.lastIndexOf(newDelimiter)) + "\r\n";
+				newBody += newSingleBody;
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		 newBody = newBody.substring(0, newBody.lastIndexOf("\r\n"));
+		event.setBody(newBody.getBytes());
+		if(StringUtils.isNotBlank(newBody)) {
+			return event;
+		}else {
+			return null;
+		}
 	}
-    String[] oldBodySpli = oldBody.split(originalDelimiter);
-    if(oldBodySpli.length ==0) {
-    	logger.error("Cannot parse body [" + oldBody + "] by Delimiter [" + originalDelimiter + "] it will be droped");
-    } else {
-        StringBuffer sb = new StringBuffer();
-        for(String col : oldBodySpli) {
-        	sb.append(col).append(newDelimiter);
-        }
-
-        String newBody = sb.toString();
-        newBody = newBody.substring(0, newBody.lastIndexOf(newDelimiter));
-        
-        event.setBody(newBody.getBytes());
-    }
-
-
-    
-    return event;
-  }
 
   /**
    * Delegates to {@link #intercept(Event)} in a loop.
@@ -119,7 +152,7 @@ public class ReplaceLineDelimitedInterceptor implements Interceptor {
   @Override
   public List<Event> intercept(List<Event> events) {
     for (Event event : events) {
-      intercept(event);
+    	intercept(event);
     }
     return events;
   }
@@ -134,21 +167,39 @@ public class ReplaceLineDelimitedInterceptor implements Interceptor {
    */
   public static class Builder implements Interceptor.Builder {
 
-    private String originalDelimiter = "\t";
     private String newDelimiter = "\u0001";
+    private Schema schema;
+    
 
     @Override
     public Interceptor build() {
-      return new ReplaceLineDelimitedInterceptor(originalDelimiter, newDelimiter);
+      return new AvroObj2DelimitedLineInterceptor(schema, newDelimiter);
     }
 
     @Override
     public void configure(Context context) {
-    	originalDelimiter = context.getString("originalDelimiter", "\t");
     	newDelimiter = context.getString("newDelimiter", "\u0001");
+    	String schemaFilePath =  context.getString("schemaFilePath");
+        Preconditions.checkState(schemaFilePath != null, "If using AvroObj2DelimitedLineInterceptor, Configuration must specify a [schemaFilePath]");
+    	
+        try {
+			InputStream in = new FileInputStream(new File(schemaFilePath));
+			
+			schema = new Schema.Parser().parse(in);
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+        
+        Preconditions.checkState(schema != null, "Cannot parse file [" + schemaFilePath  + "] as a schema");
+        
+        
     }
 
   }
+
 
 
 }
