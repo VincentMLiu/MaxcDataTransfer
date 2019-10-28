@@ -493,8 +493,9 @@ public class ReliableSpoolingFileEventReader implements ReliableEventReader {
 	 * @throws IOException
 	 */
 	private void rollCurrentFile(File fileToRoll) throws IOException {
-
-		File dest = new File(fileToRoll.getPath() + completedSuffix);
+		Double d = Math.random() * 100000;
+		Integer it = d.intValue();
+		File dest = new File(fileToRoll.getPath() + "." + String.format("%06d", it) + completedSuffix);
 		logger.info("Preparing to move file {} to {}", fileToRoll, dest);
 
 		// Before renaming, check whether destination file name exists
