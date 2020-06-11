@@ -59,7 +59,7 @@ public class SchemaRegistryServerUtils {
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		
-		Schema schema = getSchema("http://172.30.132.141:58088", "test2");
+		Schema schema = getSchema("http://172.30.132.141:58088", "topic1");
 		
 	    
 		try {

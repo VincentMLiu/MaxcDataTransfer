@@ -115,7 +115,7 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 		headers.put("schema", schema.toString());
 		headers.put("serverUrl", schemaRegistryUrl);
 		
-		if(StringUtils.isNotBlank(line)) {
+		if(!StringUtils.isNotBlank(line)) {
 			// 打印日志，说明某行解析错误，并统计
 			logger.error("Find an empty line ignore it");
 			return null;
