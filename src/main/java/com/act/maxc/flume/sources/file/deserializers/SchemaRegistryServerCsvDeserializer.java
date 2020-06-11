@@ -30,6 +30,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.annotations.InterfaceAudience;
@@ -114,8 +115,9 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 		headers.put("schema", schema.toString());
 		headers.put("serverUrl", schemaRegistryUrl);
 		
-		if(line == null ) {
+		if(StringUtils.isNotBlank(line)) {
 			// 打印日志，说明某行解析错误，并统计
+			logger.error("Find an empty line ignore it");
 			return null;
 		}
 		// System.out.println(lineStr);
@@ -133,6 +135,7 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 			return event;
 		} else {
 			// 打印日志，说明某行解析错误，并统计
+			logger.error("Find a wrong line ignore it");
 			return null;
 		}
 	}
@@ -154,7 +157,7 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 			if (event != null) {
 				events.add(event);
 			} else {
-				break;
+				continue;
 			}
 		}
 		return events;

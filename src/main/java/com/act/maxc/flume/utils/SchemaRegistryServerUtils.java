@@ -14,12 +14,15 @@ import org.apache.avro.Schema;
 import org.apache.avro.SchemaNormalization;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import com.act.maxc.flume.sources.file.deserializers.SchemaRegistryServerCsvDeserializer;
 import com.alibaba.fastjson.JSONObject;
 
 public class SchemaRegistryServerUtils {
 
-	
+	private static final Logger logger = LoggerFactory.getLogger(SchemaRegistryServerUtils.class);
 	
 	  public static Schema getSchema(String serverUrl, String subject) {
 		  Schema.Parser parser = new Schema.Parser();
@@ -47,6 +50,7 @@ public class SchemaRegistryServerUtils {
 	      String schemaStr = (String) json.get("schema");
 	      Schema schema = parser.parse(schemaStr);
 	      System.out.println(schema);
+	      logger.info(schema.toString());
 		  return schema;
 	  }
 	
