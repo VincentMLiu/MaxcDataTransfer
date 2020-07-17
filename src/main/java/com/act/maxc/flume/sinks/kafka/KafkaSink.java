@@ -134,42 +134,40 @@ public class KafkaSink extends AbstractSink implements Configurable {
         eventKey = headers.get(KEY_HDR);
 
         
-        //压缩
-        String schemaStr = event.getHeaders().get("schema");
-        Schema schema = new Schema.Parser().parse(schemaStr);
-        writer = new GenericDatumWriter<GenericRecord>(schema);
-        
-    	DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(eventBody));
-        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
-        BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
-        
-		// 根据配置选择压缩编码器
-		if (StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
-			encoder = EncoderFactory.get().binaryEncoder(output, null);
-		} else if (StringUtils.equalsIgnoreCase("json", compactionFormat)) {
-			encoder = EncoderFactory.get().jsonEncoder(schema, output);
-		}
-        
-		
-        GenericRecord datum;
-        while (decoder.isEnd()) {
-        	try {
-        		datum = reader.read(null, decoder);
-        	} catch (EOFException eofe) {
-        		break;
-        	}
-        	writer.write(datum, encoder);
-        }
-		
-    	encoder.flush();
+//        //压缩
+//        String schemaStr = event.getHeaders().get("schema");
+//        Schema schema = new Schema.Parser().parse(schemaStr);
+//        writer = new GenericDatumWriter<GenericRecord>(schema);
+//        
+//    	DataInputStream dataInputStream = new DataInputStream(new ByteArrayInputStream(eventBody));
+//        DatumReader<GenericRecord> reader = new GenericDatumReader<GenericRecord>(schema);
+//        BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(dataInputStream, null);
+//        
+//		// 根据配置选择压缩编码器
+//		if (StringUtils.equalsIgnoreCase("avro", compactionFormat)) {
+//			encoder = EncoderFactory.get().binaryEncoder(output, null);
+//		} else if (StringUtils.equalsIgnoreCase("json", compactionFormat)) {
+//			encoder = EncoderFactory.get().jsonEncoder(schema, output);
+//		}
+//        
+//		
+//        GenericRecord datum;
+//        while (decoder.isEnd()) {
+//        	try {
+//        		datum = reader.read(null, decoder);
+//        	} catch (EOFException eofe) {
+//        		break;
+//        	}
+//        	writer.write(datum, encoder);
+//        }
+//		
+//    	encoder.flush();
     	
-    	
-    	encoder.flush();
     	// create a message and add to buffer
     	KeyedMessage<String, byte[]> data = new KeyedMessage<String, byte[]>
-    	(eventTopic, eventKey, output.toByteArray());
+    	(eventTopic, eventKey, eventBody);
     	messageList.add(data);
-    	output.reset();
+//    	output.reset();
     
 	    if (logger.isDebugEnabled()) {
 	      logger.debug("{Event} " + eventTopic + " : " + eventKey + " : "

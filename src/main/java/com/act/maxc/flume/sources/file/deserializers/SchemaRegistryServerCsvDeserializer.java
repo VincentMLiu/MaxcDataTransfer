@@ -154,7 +154,7 @@ public class SchemaRegistryServerCsvDeserializer implements EventDeserializer {
 			if (event != null) {
 				events.add(event);
 			} else {
-				break;
+				continue;
 			}
 		}
 		return events;

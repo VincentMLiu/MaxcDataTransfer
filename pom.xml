@@ -14,7 +14,7 @@
 		<!-- Keep versions as properties to allow easy modification -->
 		<avro.version>1.8.2</avro.version>
 		<fastjson.version> 1.2.56 </fastjson.version>
-		<kafka.version>0.8.2.2</kafka.version>
+		<kafka.version>0.9.0.1</kafka.version>
 		<!-- Maven properties for compilation -->
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -54,7 +54,7 @@
 		
 		<dependency>
 		    <groupId>org.apache.kafka</groupId>
-		    <artifactId>kafka_2.11</artifactId>
+		    <artifactId>kafka_2.10</artifactId>
 		    <version>${kafka.version}</version>
 		</dependency>
 
