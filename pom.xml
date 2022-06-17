@@ -13,7 +13,7 @@
 		<flume.version>1.9.0</flume.version>
 		<!-- Keep versions as properties to allow easy modification -->
 		<avro.version>1.8.2</avro.version>
-		<fastjson.version> 1.2.56 </fastjson.version>
+		<fastjson.version>1.2.83</fastjson.version>
 		<kafka.version>1.0.2</kafka.version>
 		<!-- Maven properties for compilation -->
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
